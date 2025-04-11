@@ -157,14 +157,11 @@ protected:
     int64_t m_ts_offset = 0;    // audio sync offset in nanoseconds
 
     // settings
-    RenderMode m_render_mode = RenderMode::SOLID;
     PulseMode m_pulse_mode = PulseMode::MAGNITUDE;
     FFTWindow m_window_func = FFTWindow::HANN;
     InterpMode m_interp_mode = InterpMode::LANCZOS;
     FilterMode m_filter_mode = FilterMode::GAUSS;
     TSmoothingMode m_tsmoothing = TSmoothingMode::EXPONENTIAL;
-    DisplayMode m_display_mode = DisplayMode::CURVE;
-    ChannelMode m_channel_mode = ChannelMode::MONO;
     bool m_stereo = false;
     bool m_auto_fft_size = true;
     int m_cutoff_low = 0;
@@ -187,7 +184,6 @@ protected:
     int m_step_width = 0;
     int m_step_gap = 0;
     int m_num_bars = 0;
-    bool m_radial = false;
     bool m_invert = false;
     float m_deadzone = 0.0f; // radial display deadzone
     float m_radial_arc = 1.0f;
@@ -264,7 +260,6 @@ protected:
     void init_rolloff();
     void init_steps();
 
-    void render_curve(gs_effect_t *effect);
     void render_bars(gs_effect_t *effect);
 
     gs_technique_t *get_shader_tech();

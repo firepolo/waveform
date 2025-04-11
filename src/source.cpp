@@ -119,7 +119,7 @@ namespace callbacks {
     static void get_defaults(obs_data_t *settings)
     {
         obs_data_set_default_string(settings, P_AUDIO_SRC, P_NONE);
-        obs_data_set_default_string(settings, P_DISPLAY_MODE, P_CURVE);
+        obs_data_set_default_string(settings, P_DISPLAY_MODE, P_BARS);
         obs_data_set_default_int(settings, P_WIDTH, 800);
         obs_data_set_default_int(settings, P_HEIGHT, 225);
         obs_data_set_default_bool(settings, P_LOG_SCALE, true);
@@ -505,7 +505,6 @@ void WAVSource::get_settings(obs_data_t *settings)
     m_height = (unsigned int)obs_data_get_int(settings, P_HEIGHT);
     m_log_scale = obs_data_get_bool(settings, P_LOG_SCALE);
     m_mirror_freq_axis = obs_data_get_bool(settings, P_MIRROR_FREQ_AXIS);
-    m_radial = obs_data_get_bool(settings, P_RADIAL);
     m_invert = obs_data_get_bool(settings, P_INVERT);
     auto deadzone = (float)obs_data_get_double(settings, P_DEADZONE) / 100.0f;
     m_radial_arc = (float)obs_data_get_double(settings, P_RADIAL_ARC) / 360.0f;
@@ -616,61 +615,12 @@ void WAVSource::get_settings(obs_data_t *settings)
     else
         m_tsmoothing = TSmoothingMode::NONE;
 
-    if(p_equ(rendermode, P_LINE))
-        m_render_mode = RenderMode::LINE;
-    else if(p_equ(rendermode, P_GRADIENT))
-        m_render_mode = RenderMode::GRADIENT;
-    else if(p_equ(rendermode, P_PULSE))
-        m_render_mode = RenderMode::PULSE;
-    else if(p_equ(rendermode, P_RANGE))
-        m_render_mode = RenderMode::RANGE;
-    else
-        m_render_mode = RenderMode::SOLID;
-
     if(p_equ(pulsemode, P_PEAK_FREQ))
         m_pulse_mode = PulseMode::FREQUENCY;
     else
         m_pulse_mode = PulseMode::MAGNITUDE;
 
-    if(p_equ(display, P_BARS))
-        m_display_mode = DisplayMode::BAR;
-    else if(p_equ(display, P_STEP_BARS))
-        m_display_mode = DisplayMode::STEPPED_BAR;
-    else if(p_equ(display, P_LEVEL_METER))
-        m_display_mode = DisplayMode::METER;
-    else if(p_equ(display, P_STEPPED_METER))
-        m_display_mode = DisplayMode::STEPPED_METER;
-    else if(p_equ(display, P_WAVEFORM))
-        m_display_mode = DisplayMode::WAVEFORM;
-    else
-        m_display_mode = DisplayMode::CURVE;
-
-    if((m_display_mode != DisplayMode::BAR) && (m_display_mode != DisplayMode::METER))
-        m_rounded_caps = false;
-
     m_meter_mode = false;
-    if((m_display_mode == DisplayMode::METER) || (m_display_mode == DisplayMode::STEPPED_METER))
-    {
-        m_radial = false;
-        m_meter_mode = true;
-    }
-
-    if(m_radial)
-    {
-        m_height /= 2; // fit diameter to hieght of bounding box
-        auto max_deadzone = (float)(m_height - 16);
-        if(m_rounded_caps)
-            max_deadzone = std::max(max_deadzone - m_bar_width, 0.0f);
-        m_deadzone = std::min(std::floor((float)m_height * deadzone), max_deadzone);
-        m_height -= (int)m_deadzone;
-    }
-
-    if(!m_meter_mode && p_equ(channel_mode, P_SINGLE))
-        m_channel_mode = ChannelMode::SINGLE;
-    else if(p_equ(channel_mode, P_STEREO))
-        m_channel_mode = ChannelMode::STEREO;
-    else
-        m_channel_mode = ChannelMode::MONO;
 }
 
 void WAVSource::recapture_audio()
@@ -844,17 +794,9 @@ void WAVSource::init_interp(unsigned int sz)
 {
     const auto maxbin = (m_fft_size / 2) - 1;
     const auto sr = (float)m_audio_info.samples_per_sec;
-    float lowbin, highbin;
-    if(m_display_mode == DisplayMode::WAVEFORM)
-    {
-        lowbin = 0.0f;
-        highbin = (float)(m_fft_size - 1);
-    }
-    else
-    {
-        lowbin = std::clamp((float)m_cutoff_low * m_fft_size / sr, 1.0f, (float)maxbin);
-        highbin = std::clamp((float)m_cutoff_high * m_fft_size / sr, 1.0f, (float)maxbin);
-    }
+
+    const float lowbin = std::clamp((float)m_cutoff_low * m_fft_size / sr, 1.0f, (float)maxbin);
+    const float highbin = std::clamp((float)m_cutoff_high * m_fft_size / sr, 1.0f, (float)maxbin);
 
     m_interp_indices.resize(sz);
     if(m_log_scale)
@@ -869,30 +811,24 @@ void WAVSource::init_interp(unsigned int sz)
     }
 
     // bar bands
-    if((m_display_mode == DisplayMode::BAR) || (m_display_mode == DisplayMode::STEPPED_BAR))
-    {
-        m_band_widths.resize(m_num_bars);
-        for(auto i = 0; i < m_num_bars; ++i)
-            m_band_widths[i] = std::max((int)(m_interp_indices[i + 1] - m_interp_indices[i]), 1);
-    }
+    m_band_widths.resize(m_num_bars);
+    for(auto i = 0; i < m_num_bars; ++i)
+        m_band_widths[i] = std::max((int)(m_interp_indices[i + 1] - m_interp_indices[i]), 1);
 
     // interpolation filter
     if(m_interp_mode != InterpMode::POINT)
     {
-        if((m_display_mode != DisplayMode::CURVE) && (m_display_mode != DisplayMode::WAVEFORM))
+        // at this point m_interp_indices only contains the start of each band
+        // so we'll fill in the intermediate points here
+        std::vector<float> samples;
+        samples.reserve((size_t)std::ceil(highbin - lowbin));
+        for(auto i = 0; i < m_num_bars; ++i)
         {
-            // at this point m_interp_indices only contains the start of each band
-            // so we'll fill in the intermediate points here
-            std::vector<float> samples;
-            samples.reserve((size_t)std::ceil(highbin - lowbin));
-            for(auto i = 0; i < m_num_bars; ++i)
-            {
-                auto count = m_band_widths[i];
-                for(auto j = 0; j < count; ++j)
-                    samples.push_back(m_interp_indices[i] + j);
-            }
-            m_interp_indices = std::move(samples);
+            auto count = m_band_widths[i];
+            for(auto j = 0; j < count; ++j)
+                samples.push_back(m_interp_indices[i] + j);
         }
+        m_interp_indices = std::move(samples);
 
         if(m_interp_mode == InterpMode::LANCZOS)
             m_interp_kernel = make_lanczos_kernel(m_interp_indices, 4);
@@ -976,44 +912,29 @@ unsigned int WAVSource::width()
 
     if(m_meter_mode)
         return (m_bar_width * m_capture_channels) + ((m_capture_channels > 1) ? m_bar_gap : 0);
-    if(m_radial)
-        return (unsigned int)((m_height + m_deadzone) * 2);
     return m_width;
 }
 
 unsigned int WAVSource::height()
 {
     std::lock_guard lock(m_mtx);
-
-    if(m_radial)
-        return (unsigned int)((m_height + m_deadzone) * 2);
     return m_height;
 }
 
 void WAVSource::create_vbuf() {
-    size_t num_verts = 0;
-    bool curve = (m_display_mode == DisplayMode::CURVE) || (m_display_mode == DisplayMode::WAVEFORM);
+    const auto step_stride = m_step_width + m_step_gap;
+    const auto center = (float)m_height / 2;
+    const auto bottom = (float)m_height;
+    const auto cpos = m_stereo ? center : bottom;
+    const auto channel_offset = m_channel_spacing * 0.5f;
 
-    if(curve)
-        num_verts = (size_t)((m_render_mode == RenderMode::LINE) ? m_width : (m_width * 2));
-    else
-    {
-        const auto step_stride = m_step_width + m_step_gap;
-        const auto center = (float)m_height / 2;
-        const auto bottom = (float)m_height;
-        const auto cpos = m_stereo ? center : bottom;
-        const auto channel_offset = m_channel_spacing * 0.5f;
+    auto max_steps = (size_t)((cpos - channel_offset) / step_stride);
+    if(((int)cpos - (int)(max_steps * step_stride) - (int)channel_offset) > m_step_width)
+        ++max_steps;
 
-        auto max_steps = (size_t)((cpos - channel_offset) / step_stride);
-        if(((int)cpos - (int)(max_steps * step_stride) - (int)channel_offset) > m_step_width)
-            ++max_steps;
-
-        num_verts = (size_t)(m_num_bars * 6);
-        if((m_display_mode == DisplayMode::STEPPED_BAR) || (m_display_mode == DisplayMode::STEPPED_METER))
-            num_verts *= max_steps;
-        else if(m_rounded_caps)
-            num_verts += m_cap_tris * ((m_channel_spacing > 0) ? 12 : 6) * m_num_bars; // 2 caps per bar (middle omitted when 0 spacing)
-    }
+    size_t num_verts = (size_t)(m_num_bars * 6);
+    if(m_rounded_caps)
+        num_verts += m_cap_tris * ((m_channel_spacing > 0) ? 12 : 6) * m_num_bars; // 2 caps per bar (middle omitted when 0 spacing)
 
     constexpr auto signbit = (size_t)1 << ((sizeof(num_verts) * 8) - 1);
     assert(num_verts > 0);
@@ -1035,22 +956,6 @@ void WAVSource::create_vbuf() {
         vbdata->tvarray->width = 2;
         vbdata->tvarray->array = bmalloc(2 * num_verts * sizeof(float));
         m_vbuf = gs_vertexbuffer_create(vbdata, GS_DYNAMIC);
-
-        if(curve) {
-            if(m_render_mode == RenderMode::LINE)
-            {
-                for(auto i = 0u; i < m_width; ++i)
-                    vec3_set(&vbdata->points[i], (float)i, 0, 0);
-            }
-            else
-            {
-                for(auto i = 0u; i < m_width; ++i)
-                {
-                    vec3_set(&vbdata->points[i * 2], (float)i, 0, 0);
-                    vec3_set(&vbdata->points[(i * 2) + 1], (float)i, 0, 0);
-                }
-            }
-        }
     }
     else
     {
@@ -1102,18 +1007,8 @@ void WAVSource::update(obs_data_t *settings)
     m_capture_channels = std::min(max_channels, 2u);
     if(m_capture_channels == 0)
         LogWarn << "Unknown channel config: " << (unsigned int)m_audio_info.speakers;
-    if(m_channel_mode == ChannelMode::SINGLE)
-    {
-        if((m_channel_base < 0) || (m_channel_base >= (int)max_channels) || (m_channel_base >= MAX_AUDIO_CHANNELS))
-        {
-            m_capture_channels = 0;
-            m_channel_base = 0;
-        }
-        else
-            m_capture_channels = std::min(m_capture_channels, 1u);
-    }
-    else
-        m_channel_base = 0;
+    
+    m_channel_base = 0;
 
     // meter mode
     if(m_meter_mode)
@@ -1126,7 +1021,6 @@ void WAVSource::update(obs_data_t *settings)
         m_auto_fft_size = false;
         m_slope = 0.0f;
         m_stereo = false;
-        m_radial = false;
         m_normalize_volume = false;
         m_mirror_freq_axis = false;
 
@@ -1138,21 +1032,6 @@ void WAVSource::update(obs_data_t *settings)
             i = DB_MIN;
         for(auto& i : m_meter_val)
             i = DB_MIN;
-    }
-    else if(m_display_mode == DisplayMode::WAVEFORM)
-    {
-        // turn off stuff we don't need in this mode
-        m_window_func = FFTWindow::NONE;
-        m_pulse_mode = PulseMode::MAGNITUDE;
-        m_auto_fft_size = false;
-        m_slope = 0.0f;
-        m_mirror_freq_axis = false;
-        m_log_scale = false;
-
-        // repurpose m_fft_size for buffer size
-        m_fft_size = m_width;
-        m_waveform_samples = size_t(m_audio_info.samples_per_sec * (m_meter_ms / 1000.0));
-        m_waveform_ts = 0;
     }
 
     if(m_normalize_volume)
@@ -1180,7 +1059,7 @@ void WAVSource::update(obs_data_t *settings)
     }
 
     // initialize buffers
-    auto spectrum_mode = !m_meter_mode && (m_display_mode != DisplayMode::WAVEFORM);
+    auto spectrum_mode = !m_meter_mode;
     m_output_channels = ((m_capture_channels > 1) || m_stereo) ? 2u : 1u;
     for(auto i = 0u; i < m_output_channels; ++i)
     {
@@ -1261,13 +1140,7 @@ void WAVSource::update(obs_data_t *settings)
     }
 
     // precomupte interpolated indices
-    if((m_display_mode == DisplayMode::CURVE) || (m_display_mode == DisplayMode::WAVEFORM))
-    {
-        init_interp(m_width);
-        for(auto& i : m_interp_bufs)
-            i.resize(m_width);
-    }
-    else if(m_meter_mode)
+    if(m_meter_mode)
     {
         // channel meter rendering through the bar renderer
         // emulate 1-2 bar spectrum graph
@@ -1321,10 +1194,6 @@ void WAVSource::update(obs_data_t *settings)
         }
     }
 
-    // stepped bars
-    if((m_display_mode == DisplayMode::STEPPED_BAR) || (m_display_mode == DisplayMode::STEPPED_METER))
-        init_steps();
-
     // roll-off
     if((m_rolloff_q > 0.0f) && (m_rolloff_rate > 0.0f))
         init_rolloff();
@@ -1350,8 +1219,6 @@ void WAVSource::tick(float seconds)
 
     if(m_meter_mode)
         tick_meter(seconds);
-    else if(m_display_mode == DisplayMode::WAVEFORM)
-        tick_waveform(seconds);
     else
         tick_spectrum(seconds);
 }
@@ -1359,128 +1226,10 @@ void WAVSource::tick(float seconds)
 void WAVSource::render([[maybe_unused]] gs_effect_t *effect)
 {
     std::lock_guard lock(m_mtx);
-    if(m_last_silent && m_hide_on_silent)
-        return;
-    if(m_vbuf == nullptr)
+    if((m_last_silent && m_hide_on_silent) || m_vbuf == nullptr)
         return;
 
-    if((m_display_mode == DisplayMode::CURVE) || (m_display_mode == DisplayMode::WAVEFORM))
-        render_curve(effect);
-    else
-        render_bars(effect);
-}
-
-void WAVSource::render_curve([[maybe_unused]] gs_effect_t *effect)
-{
-    //std::lock_guard lock(m_mtx); // now locked in render()
-    //if(m_last_silent)
-    //    return;
-
-    auto tech = get_shader_tech();
-    
-    const auto center = (float)m_height / 2;
-    //const auto right = (float)m_width;
-    const auto bottom = (float)m_height;
-    const auto dbrange = m_ceiling - m_floor;
-    const auto cpos = m_stereo ? center : bottom;
-    const auto channel_offset = m_channel_spacing * 0.5f;
-
-    // interpolation
-    auto miny = cpos;
-    auto minpos = 0u;
-    for(auto channel = 0u; channel < (m_stereo ? 2u : 1u); ++channel)
-    {
-        if(m_interp_mode != InterpMode::POINT)
-        {
-            const auto sz = (m_display_mode == DisplayMode::WAVEFORM) ? m_fft_size : m_fft_size / 2u;
-#ifdef ENABLE_X86_SIMD
-            if(HAVE_AVX)
-                apply_interp_filter_fma3(m_decibels[channel].get(), sz, m_interp_indices, m_interp_kernel, m_interp_bufs[channel]);
-            else
-                apply_interp_filter(m_decibels[channel].get(), sz, m_interp_indices, m_interp_kernel, m_interp_bufs[channel]);
-#else
-            apply_interp_filter(m_decibels[channel].get(), sz, m_interp_indices, m_interp_kernel, m_interp_bufs[channel]);
-#endif
-        }
-        else
-            for(auto i = 0u; i < m_width; ++i)
-                m_interp_bufs[channel][i] = m_decibels[channel][(int)m_interp_indices[i]];
-
-        if(m_filter_mode != FilterMode::NONE)
-        {
-#ifdef ENABLE_X86_SIMD
-            if(HAVE_AVX)
-                std::swap(m_interp_bufs[channel], apply_filter_fma3(m_interp_bufs[channel], m_kernel, m_interp_bufs[2]));
-            else
-                std::swap(m_interp_bufs[channel], apply_filter(m_interp_bufs[channel], m_kernel, m_interp_bufs[2]));
-#else
-            std::swap(m_interp_bufs[channel], apply_filter(m_interp_bufs[channel], m_kernel, m_interp_bufs[2]));
-#endif // ENABLE_X86_SIMD
-        }
-        
-        for(auto i = 0u; i < m_width; ++i)
-        {
-            auto val = lerp(0.0f, cpos - channel_offset, std::clamp(m_ceiling - m_interp_bufs[channel][i], 0.0f, (float)dbrange) / dbrange);
-            if(val < miny)
-            {
-                miny = val;
-                minpos = i;
-            }
-            m_interp_bufs[channel][i] = val;
-        }
-
-        if(m_mirror_freq_axis)
-        {
-            const auto half = (m_width / 2u);
-            for(auto i = half + 1; i < m_width; ++i)
-                m_interp_bufs[channel][i] = m_interp_bufs[channel][half - (i - half)];
-        }
-    }
-
-    set_shader_vars(cpos, miny, (float)minpos, channel_offset, 0.0f, cpos - channel_offset);
-
-    gs_technique_begin(tech);
-    gs_technique_begin_pass(tech, 0);
-    gs_load_vertexbuffer(m_vbuf);
-    gs_load_indexbuffer(nullptr);
-
-    auto vbdata = gs_vertexbuffer_get_data(m_vbuf);
-
-    for(auto channel = 0u; channel < (m_stereo ? 2u : 1u); ++channel)
-    {
-        auto offset = channel_offset;
-        if(channel)
-            offset = -offset;
-        auto bot = cpos - offset;
-
-        for(auto i = 0u; i < m_width; ++i)
-        {
-            auto val = m_interp_bufs[channel][i];
-            if(m_render_mode == RenderMode::LINE)
-            {
-                if(channel == 0)
-                    vbdata->points[i].y = val;
-                else
-                    vbdata->points[i].y = bottom - val;
-            }
-            else
-            {
-                if(channel == 0)
-                    vbdata->points[i * 2].y = val;
-                else
-                    vbdata->points[i * 2].y = bottom - val;
-                vbdata->points[(i * 2) + 1].y = bot;
-            }
-        }
-
-        gs_vertexbuffer_flush(m_vbuf);
-
-        gs_draw((m_render_mode != RenderMode::LINE) ? GS_TRISTRIP : GS_LINESTRIP, 0, (uint32_t)vbdata->num);
-    }
-
-    gs_load_vertexbuffer(nullptr);
-    gs_technique_end_pass(tech);
-    gs_technique_end(tech);
+    render_bars(effect);
 }
 
 void WAVSource::render_bars([[maybe_unused]] gs_effect_t *effect)
@@ -1594,78 +1343,50 @@ void WAVSource::render_bars([[maybe_unused]] gs_effect_t *effect)
         {
             auto val = m_interp_bufs[channel][i];
 
-            if((m_display_mode == DisplayMode::STEPPED_BAR) || (m_display_mode == DisplayMode::STEPPED_METER))
+            auto x1 = (float)(i * bar_stride);
+            auto x2 = x1 + m_bar_width;
+            auto offset = (m_rounded_caps ? m_cap_radius : 0.0f) + channel_offset;
+            if(channel)
             {
-                const auto x = (float)(i * bar_stride);
-                const auto maxheight = (cpos - val - channel_offset);
-                for(auto j = 0u; j < max_steps; ++j)
-                {
-                    auto y = (float)(j * step_stride);
-                    if(y >= maxheight)
-                        break;
-                    if(channel)
-                        y = cpos + y + channel_offset;
-                    else
-                        y = cpos - y - channel_offset - m_step_width;
-
-                    vec3 vert;
-                    vec3_set(&vert, x, y, 0.0f);
-                    vec3_add(&vbdata->points[vertpos], &m_step_verts[0], &vert);
-                    vec3_add(&vbdata->points[vertpos + 1], &m_step_verts[1], &vert);
-                    vec3_add(&vbdata->points[vertpos + 2], &m_step_verts[2], &vert);
-                    vec3_add(&vbdata->points[vertpos + 3], &m_step_verts[3], &vert);
-                    vec3_add(&vbdata->points[vertpos + 4], &m_step_verts[4], &vert);
-                    vec3_add(&vbdata->points[vertpos + 5], &m_step_verts[5], &vert);
-                    vertpos += 6;
-                }
+                val = bottom - val;
+                offset = -offset;
             }
-            else
-            {
-                auto x1 = (float)(i * bar_stride);
-                auto x2 = x1 + m_bar_width;
-                auto offset = (m_rounded_caps ? m_cap_radius : 0.0f) + channel_offset;
-                if(channel)
-                {
-                    val = bottom - val;
-                    offset = -offset;
-                }
-                auto bot = ((m_rounded_caps && !m_stereo) || (m_channel_spacing > 0)) ? (cpos - offset) : cpos;
-                vec3_set(&vbdata->points[vertpos], x1, val, 0);
-                vec3_set(&vbdata->points[vertpos + 1], x2, val, 0);
-                vec3_set(&vbdata->points[vertpos + 2], x1, bot, 0);
-                vec3_set(&vbdata->points[vertpos + 3], x2, val, 0);
-                vec3_set(&vbdata->points[vertpos + 4], x1, bot, 0);
-                vec3_set(&vbdata->points[vertpos + 5], x2, bot, 0);
-                vertpos += 6;
+            auto bot = ((m_rounded_caps && !m_stereo) || (m_channel_spacing > 0)) ? (cpos - offset) : cpos;
+            vec3_set(&vbdata->points[vertpos], x1, val, 0);
+            vec3_set(&vbdata->points[vertpos + 1], x2, val, 0);
+            vec3_set(&vbdata->points[vertpos + 2], x1, bot, 0);
+            vec3_set(&vbdata->points[vertpos + 3], x2, val, 0);
+            vec3_set(&vbdata->points[vertpos + 4], x1, bot, 0);
+            vec3_set(&vbdata->points[vertpos + 5], x2, bot, 0);
+            vertpos += 6;
 
-                if(m_rounded_caps)
+            if(m_rounded_caps)
+            {
+                auto ccx = (float)(i * bar_stride) + m_cap_radius; // cap center x
+                auto half = m_cap_tris / 2; // m_cap_tris always even
+                auto start = channel ? 0 : half;
+                auto stop = start + half;
+                vec3 cvert;
+                vec3_set(&cvert, ccx, val, 0.0f);
+                for(auto j = start; j < stop; ++j)
                 {
-                    auto ccx = (float)(i * bar_stride) + m_cap_radius; // cap center x
-                    auto half = m_cap_tris / 2; // m_cap_tris always even
-                    auto start = m_radial ? 0 : (channel ? 0 : half);
-                    auto stop = m_radial ? m_cap_tris : (start + half);
-                    vec3 cvert;
-                    vec3_set(&cvert, ccx, val, 0.0f);
+                    vec3_add(&vbdata->points[vertpos], &m_cap_verts[j], &cvert);
+                    vec3_add(&vbdata->points[vertpos + 1], &m_cap_verts[j + 1], &cvert);
+                    vec3_copy(&vbdata->points[vertpos + 2], &cvert);
+                    vertpos += 3;
+                }
+                if(!m_stereo || (m_channel_spacing > 0))
+                {
+                    auto ccy = cpos - offset;
+                    start = channel ? half : 0;
+                    stop = start + half;
+                    vec3_set(&cvert, ccx, ccy, 0.0f);
                     for(auto j = start; j < stop; ++j)
                     {
                         vec3_add(&vbdata->points[vertpos], &m_cap_verts[j], &cvert);
                         vec3_add(&vbdata->points[vertpos + 1], &m_cap_verts[j + 1], &cvert);
                         vec3_copy(&vbdata->points[vertpos + 2], &cvert);
                         vertpos += 3;
-                    }
-                    if(!m_stereo || (m_channel_spacing > 0))
-                    {
-                        auto ccy = cpos - offset;
-                        start = m_radial ? 0 : (channel ? half : 0);
-                        stop = m_radial ? m_cap_tris : (start + half);
-                        vec3_set(&cvert, ccx, ccy, 0.0f);
-                        for(auto j = start; j < stop; ++j)
-                        {
-                            vec3_add(&vbdata->points[vertpos], &m_cap_verts[j], &cvert);
-                            vec3_add(&vbdata->points[vertpos + 1], &m_cap_verts[j + 1], &cvert);
-                            vec3_copy(&vbdata->points[vertpos + 2], &cvert);
-                            vertpos += 3;
-                        }
                     }
                 }
             }
@@ -1684,96 +1405,13 @@ void WAVSource::render_bars([[maybe_unused]] gs_effect_t *effect)
 
 gs_technique_t *WAVSource::get_shader_tech()
 {
-    const char *techname;
-    if(m_radial)
-    {
-        if(m_render_mode == RenderMode::GRADIENT)
-            techname = "RadialGradient";
-        else if(m_render_mode == RenderMode::RANGE)
-            techname = "RadialRange";
-        else
-            techname = "Radial";
-    }
-    else if(m_render_mode == RenderMode::GRADIENT)
-        techname = "Gradient";
-    else if(m_render_mode == RenderMode::RANGE)
-        techname = "Range";
-    else
-        techname = "Solid";
-    return gs_effect_get_technique(m_shader, techname);
+    return gs_effect_get_technique(m_shader, "Solid");
 }
 
 void WAVSource::set_shader_vars(float cpos, float miny, float minpos, float channel_offset, float border_top, float border_bottom)
 {
-    if(m_render_mode == RenderMode::PULSE)
-    {
-        bool bars = (m_display_mode == DisplayMode::BAR) || (m_display_mode == DisplayMode::STEPPED_BAR) || m_meter_mode;
-        vec4 color;
-        auto range = border_bottom - border_top;
-        auto t = (m_pulse_mode == PulseMode::MAGNITUDE) ? saturate((border_bottom - miny) / (range * m_grad_ratio)) : saturate(minpos / ((bars ? (float)(m_num_bars - 1) : (float)(m_width - 1)) * m_grad_ratio));
-        auto x = lerp(m_color_base.x, m_color_crest.x, t);
-        auto y = lerp(m_color_base.y, m_color_crest.y, t);
-        auto z = lerp(m_color_base.z, m_color_crest.z, t);
-        auto w = lerp(m_color_base.w, m_color_crest.w, t);
-        vec4_set(&color, x, y, z, w);
-
-        auto color_base = gs_effect_get_param_by_name(m_shader, "color_base");
-        gs_effect_set_vec4(color_base, &color);
-    }
-    else
-    {
-        auto color_base = gs_effect_get_param_by_name(m_shader, "color_base");
-        gs_effect_set_vec4(color_base, &m_color_base);
-
-        if(m_render_mode == RenderMode::GRADIENT)
-        {
-            auto color_crest = gs_effect_get_param_by_name(m_shader, "color_crest");
-            gs_effect_set_vec4(color_crest, &m_color_crest);
-            auto grad_height = gs_effect_get_param_by_name(m_shader, "grad_height");
-            gs_effect_set_float(grad_height, (cpos - miny - channel_offset) * m_grad_ratio);
-            auto grad_center = gs_effect_get_param_by_name(m_shader, "grad_center");
-            gs_effect_set_float(grad_center, cpos);
-            auto grad_offset = gs_effect_get_param_by_name(m_shader, "grad_offset");
-            gs_effect_set_float(grad_offset, channel_offset);
-        }
-        else if(m_render_mode == RenderMode::RANGE)
-        {
-            auto color_middle = gs_effect_get_param_by_name(m_shader, "color_middle");
-            gs_effect_set_vec4(color_middle, &m_color_middle);
-            auto color_crest = gs_effect_get_param_by_name(m_shader, "color_crest");
-            gs_effect_set_vec4(color_crest, &m_color_crest);
-            auto grad_height = gs_effect_get_param_by_name(m_shader, "grad_height");
-            gs_effect_set_float(grad_height, cpos - channel_offset);
-            auto grad_center = gs_effect_get_param_by_name(m_shader, "grad_center");
-            gs_effect_set_float(grad_center, cpos);
-            auto grad_offset = gs_effect_get_param_by_name(m_shader, "grad_offset");
-            gs_effect_set_float(grad_offset, channel_offset);
-            auto range_middle = gs_effect_get_param_by_name(m_shader, "range_middle");
-            gs_effect_set_float(range_middle, (float)(m_range_middle - m_ceiling) / m_floor);
-            auto range_crest = gs_effect_get_param_by_name(m_shader, "range_crest");
-            gs_effect_set_float(range_crest, (float)(m_range_crest - m_ceiling) / m_floor);
-        }
-    }
-
-    if(m_radial)
-    {
-        auto graph_width = gs_effect_get_param_by_name(m_shader, "graph_width");
-        gs_effect_set_float(graph_width, float(m_width - 1));
-        auto graph_height = gs_effect_get_param_by_name(m_shader, "graph_height");
-        gs_effect_set_float(graph_height, (float)m_height);
-        auto graph_deadzone = gs_effect_get_param_by_name(m_shader, "graph_deadzone");
-        gs_effect_set_float(graph_deadzone, m_deadzone);
-        auto radial_arc = gs_effect_get_param_by_name(m_shader, "radial_arc");
-        gs_effect_set_float(radial_arc, m_radial_arc);
-        auto radial_rotation = gs_effect_get_param_by_name(m_shader, "radial_rotation");
-        gs_effect_set_float(radial_rotation, m_radial_rotation);
-        auto graph_invert = gs_effect_get_param_by_name(m_shader, "graph_invert");
-        gs_effect_set_bool(graph_invert, m_invert);
-        auto radial_center = gs_effect_get_param_by_name(m_shader, "radial_center");
-        vec2 rc;
-        vec2_set(&rc, (float)m_height + m_deadzone, (float)m_height + m_deadzone);
-        gs_effect_set_vec2(radial_center, &rc);
-    }
+    auto color_base = gs_effect_get_param_by_name(m_shader, "color_base");
+    gs_effect_set_vec4(color_base, &m_color_base);
 }
 
 void WAVSource::show()
@@ -1848,7 +1486,7 @@ void WAVSource::capture_audio([[maybe_unused]] obs_source_t *source, const audio
         m_audio_ts = m_capture_ts;
     else
         m_audio_ts = audio->timestamp + audio_len;
-    const auto bufsz = ((m_display_mode == DisplayMode::WAVEFORM) ? m_waveform_samples : m_fft_size) * sizeof(float);
+    const auto bufsz = m_fft_size * sizeof(float);
     const int64_t dtaudio = get_audio_sync(m_capture_ts);
     const size_t dtsamples = (dtaudio > 0) ? (size_t)ns_to_audio_frames(m_audio_info.samples_per_sec, (uint64_t)dtaudio) : 0;
 
