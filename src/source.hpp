@@ -39,13 +39,6 @@ enum class FFTWindow
     POWER_OF_SINE
 };
 
-enum class InterpMode
-{
-    POINT,
-    LANCZOS,
-    CATROM
-};
-
 enum class FilterMode
 {
     NONE,
@@ -58,21 +51,6 @@ enum class TSmoothingMode
     NONE,
     EXPONENTIAL,
     TVEXPONENTIAL
-};
-
-enum class RenderMode
-{
-    LINE,
-    SOLID,
-    GRADIENT,
-    PULSE,
-    RANGE
-};
-
-enum class PulseMode
-{
-    MAGNITUDE,
-    FREQUENCY
 };
 
 enum class DisplayMode
@@ -158,8 +136,6 @@ protected:
 
     // settings
     FFTWindow m_window_func = FFTWindow::HANN;
-    InterpMode m_interp_mode = InterpMode::LANCZOS;
-    FilterMode m_filter_mode = FilterMode::GAUSS;
     TSmoothingMode m_tsmoothing = TSmoothingMode::EXPONENTIAL;
     bool m_stereo = false;
     bool m_auto_fft_size = true;

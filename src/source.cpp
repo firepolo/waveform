@@ -138,9 +138,6 @@ namespace callbacks {
         obs_data_set_default_bool(settings, P_ENABLE_LARGE_FFT, false);
         obs_data_set_default_string(settings, P_WINDOW, P_HANN);
         obs_data_set_default_int(settings, P_SINE_EXPONENT, 2);
-        obs_data_set_default_string(settings, P_INTERP_MODE, P_CATROM);
-        obs_data_set_default_string(settings, P_FILTER_MODE, P_NONE);
-        obs_data_set_default_double(settings, P_FILTER_RADIUS, 1.5);
         obs_data_set_default_string(settings, P_TSMOOTHING, P_EXPAVG);
         obs_data_set_default_double(settings, P_GRAVITY, 0.65);
         obs_data_set_default_bool(settings, P_FAST_PEAKS, false);
@@ -246,9 +243,6 @@ namespace callbacks {
             set_prop_visible(props, P_ROLLOFF_RATE, notmeter && !waveform);
             set_prop_visible(props, P_CUTOFF_LOW, notmeter && !waveform);
             set_prop_visible(props, P_CUTOFF_HIGH, notmeter && !waveform);
-            set_prop_visible(props, P_FILTER_MODE, notmeter);
-            set_prop_visible(props, P_FILTER_RADIUS, notmeter && !p_equ(obs_data_get_string(settings, P_FILTER_MODE), P_NONE));
-            set_prop_visible(props, P_INTERP_MODE, notmeter);
             set_prop_visible(props, P_CHANNEL_MODE, notmeter);
             set_prop_visible(props, P_CHANNEL, notmeter && p_equ(obs_data_get_string(settings, P_CHANNEL_MODE), P_SINGLE));
             set_prop_visible(props, P_CHANNEL_SPACING, notmeter && p_equ(obs_data_get_string(settings, P_CHANNEL_MODE), P_STEREO));
@@ -387,25 +381,6 @@ namespace callbacks {
             return true;
             });
 
-        // interpolation
-        auto interplist = obs_properties_add_list(props, P_INTERP_MODE, T(P_INTERP_MODE), OBS_COMBO_TYPE_LIST, OBS_COMBO_FORMAT_STRING);
-        obs_property_list_add_string(interplist, T(P_POINT), P_POINT);
-        obs_property_list_add_string(interplist, T(P_LANCZOS), P_LANCZOS);
-        obs_property_list_add_string(interplist, T(P_CATROM), P_CATROM);
-        obs_property_set_long_description(interplist, T(P_INTERP_DESC));
-
-        // filter
-        auto filterlist = obs_properties_add_list(props, P_FILTER_MODE, T(P_FILTER_MODE), OBS_COMBO_TYPE_LIST, OBS_COMBO_FORMAT_STRING);
-        obs_property_list_add_string(filterlist, T(P_NONE), P_NONE);
-        obs_property_list_add_string(filterlist, T(P_GAUSS), P_GAUSS);
-        obs_properties_add_float_slider(props, P_FILTER_RADIUS, T(P_FILTER_RADIUS), 0.0, 32.0, 0.01);
-        obs_property_set_long_description(filterlist, T(P_FILTER_DESC));
-        obs_property_set_modified_callback(filterlist, [](obs_properties_t *props, [[maybe_unused]] obs_property_t *property, obs_data_t *settings) -> bool {
-            auto enable = !p_equ(obs_data_get_string(settings, P_FILTER_MODE), P_NONE) && obs_property_visible(obs_properties_get(props, P_FILTER_MODE));
-            set_prop_visible(props, P_FILTER_RADIUS, enable);
-            return true;
-            });
-
         // display
         auto low_cut = obs_properties_add_int_slider(props, P_CUTOFF_LOW, T(P_CUTOFF_LOW), 0, 24000, 1);
         auto high_cut = obs_properties_add_int_slider(props, P_CUTOFF_HIGH, T(P_CUTOFF_HIGH), 0, 24000, 1);
@@ -480,8 +455,6 @@ void WAVSource::get_settings(obs_data_t *settings)
     auto tsmoothing = obs_data_get_string(settings, P_TSMOOTHING);
     m_gravity = (float)obs_data_get_double(settings, P_GRAVITY);
     m_fast_peaks = obs_data_get_bool(settings, P_FAST_PEAKS);
-    auto interp = obs_data_get_string(settings, P_INTERP_MODE);
-    auto filtermode = obs_data_get_string(settings, P_FILTER_MODE);
     m_cutoff_low = (int)obs_data_get_int(settings, P_CUTOFF_LOW);
     m_cutoff_high = (int)obs_data_get_int(settings, P_CUTOFF_HIGH);
     m_floor = (int)obs_data_get_int(settings, P_FLOOR);
@@ -544,18 +517,6 @@ void WAVSource::get_settings(obs_data_t *settings)
         m_window_func = FFTWindow::POWER_OF_SINE;
     else
         m_window_func = FFTWindow::NONE;
-
-    if(p_equ(interp, P_LANCZOS))
-        m_interp_mode = InterpMode::LANCZOS;
-    else if(p_equ(interp, P_CATROM))
-        m_interp_mode = InterpMode::CATROM;
-    else
-        m_interp_mode = InterpMode::POINT;
-
-    if(p_equ(filtermode, P_GAUSS))
-        m_filter_mode = FilterMode::GAUSS;
-    else
-        m_filter_mode = FilterMode::NONE;
 
     if(p_equ(tsmoothing, P_EXPAVG))
         m_tsmoothing = TSmoothingMode::EXPONENTIAL;
@@ -749,27 +710,6 @@ void WAVSource::init_interp(unsigned int sz)
     m_band_widths.resize(m_num_bars);
     for(auto i = 0; i < m_num_bars; ++i)
         m_band_widths[i] = std::max((int)(m_interp_indices[i + 1] - m_interp_indices[i]), 1);
-
-    // interpolation filter
-    if(m_interp_mode != InterpMode::POINT)
-    {
-        // at this point m_interp_indices only contains the start of each band
-        // so we'll fill in the intermediate points here
-        std::vector<float> samples;
-        samples.reserve((size_t)std::ceil(highbin - lowbin));
-        for(auto i = 0; i < m_num_bars; ++i)
-        {
-            auto count = m_band_widths[i];
-            for(auto j = 0; j < count; ++j)
-                samples.push_back(m_interp_indices[i] + j);
-        }
-        m_interp_indices = std::move(samples);
-
-        if(m_interp_mode == InterpMode::LANCZOS)
-            m_interp_kernel = make_lanczos_kernel(m_interp_indices, 4);
-        else if(m_interp_mode == InterpMode::CATROM)
-            m_interp_kernel = make_catrom_kernel(m_interp_indices, 0.5f);
-    }
 }
 
 void WAVSource::init_rolloff()
@@ -933,8 +873,6 @@ void WAVSource::update(obs_data_t *settings)
     {
         // turn off stuff we don't need in this mode
         m_window_func = FFTWindow::NONE;
-        m_interp_mode = InterpMode::POINT;
-        m_filter_mode = FilterMode::NONE;
         m_auto_fft_size = false;
         m_slope = 0.0f;
         m_stereo = false;
@@ -1164,27 +1102,13 @@ void WAVSource::render_bars([[maybe_unused]] gs_effect_t *effect)
         }
         else
         {
-            if(m_interp_mode != InterpMode::POINT)
+            for(auto i = 0; i < m_num_bars; ++i)
             {
-#ifdef ENABLE_X86_SIMD
-                if(HAVE_AVX)
-                    apply_interp_filter_fma3(m_decibels[channel].get(), m_fft_size / 2, m_band_widths, m_interp_indices, m_interp_kernel, m_interp_bufs[channel]);
-                else
-                    apply_interp_filter(m_decibels[channel].get(), m_fft_size / 2, m_band_widths, m_interp_indices, m_interp_kernel, m_interp_bufs[channel]);
-#else
-                apply_interp_filter(m_decibels[channel].get(), m_fft_size / 2, m_band_widths, m_interp_indices, m_interp_kernel, m_interp_bufs[channel]);
-#endif
-            }
-            else
-            {
-                for(auto i = 0; i < m_num_bars; ++i)
-                {
-                    float sum = 0.0f;
-                    auto count = (size_t)m_band_widths[i];
-                    for(size_t j = 0; j < count; ++j)
-                        sum += m_decibels[channel][(size_t)m_interp_indices[i] + j];
-                    m_interp_bufs[channel][i] = sum / (float)count;
-                }
+                float sum = 0.0f;
+                auto count = (size_t)m_band_widths[i];
+                for(size_t j = 0; j < count; ++j)
+                    sum += m_decibels[channel][(size_t)m_interp_indices[i] + j];
+                m_interp_bufs[channel][i] = sum / (float)count;
             }
         }
 
