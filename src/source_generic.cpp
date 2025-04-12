@@ -94,13 +94,10 @@ void WAVSourceGeneric::tick_spectrum([[maybe_unused]] float seconds)
             }
         }
 
-        if(m_window_func != FFTWindow::NONE)
-        {
-            auto inbuf = m_fft_input.get();
-            auto mulbuf = m_window_coefficients.get();
-            for(auto i = 0u; i < m_fft_size; i += step)
-                inbuf[i] *= mulbuf[i];
-        }
+        auto inbuf = m_fft_input.get();
+        auto mulbuf = m_window_coefficients.get();
+        for(auto i = 0u; i < m_fft_size; i += step)
+            inbuf[i] *= mulbuf[i];
 
         if(m_fft_plan != nullptr)
             fftwf_execute(m_fft_plan);

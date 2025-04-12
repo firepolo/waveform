@@ -127,10 +127,6 @@ namespace callbacks {
         obs_data_set_default_int(settings, P_CHANNEL, 0);
         obs_data_set_default_int(settings, P_CHANNEL_SPACING, 0);
         obs_data_set_default_int(settings, P_FFT_SIZE, 4096);
-        obs_data_set_default_bool(settings, P_AUTO_FFT_SIZE, false);
-        obs_data_set_default_bool(settings, P_ENABLE_LARGE_FFT, false);
-        obs_data_set_default_string(settings, P_WINDOW, P_HANN);
-        obs_data_set_default_int(settings, P_SINE_EXPONENT, 2);
         obs_data_set_default_double(settings, P_GRAVITY, 0.65);
         obs_data_set_default_int(settings, P_CUTOFF_LOW, 30);
         obs_data_set_default_int(settings, P_CUTOFF_HIGH, 17500);
@@ -221,13 +217,9 @@ namespace callbacks {
             set_prop_visible(props, P_CHANNEL_MODE, notmeter);
             set_prop_visible(props, P_CHANNEL, notmeter && p_equ(obs_data_get_string(settings, P_CHANNEL_MODE), P_SINGLE));
             set_prop_visible(props, P_CHANNEL_SPACING, notmeter && p_equ(obs_data_get_string(settings, P_CHANNEL_MODE), P_STEREO));
-            set_prop_visible(props, P_WINDOW, notmeter && !waveform);
-            set_prop_visible(props, P_SINE_EXPONENT, notmeter && !waveform && p_equ(obs_data_get_string(settings, P_WINDOW), P_POWER_OF_SINE));
             set_prop_visible(props, P_LOG_SCALE, notmeter && !waveform);
             set_prop_visible(props, P_WIDTH, notmeter);
-            set_prop_visible(props, P_AUTO_FFT_SIZE, notmeter && !waveform);
             set_prop_visible(props, P_FFT_SIZE, notmeter && !waveform);
-            set_prop_visible(props, P_ENABLE_LARGE_FFT, notmeter && !waveform);
             set_prop_visible(props, P_RMS_MODE, !notmeter);
             set_prop_visible(props, P_METER_BUF, !notmeter || waveform);
             set_prop_visible(props, P_NORMALIZE_VOLUME, notmeter);
@@ -268,39 +260,8 @@ namespace callbacks {
             });
 
         // fft size
-        auto autofftsz = obs_properties_add_bool(props, P_AUTO_FFT_SIZE, T(P_AUTO_FFT_SIZE));
-        auto largefft = obs_properties_add_bool(props, P_ENABLE_LARGE_FFT, T(P_ENABLE_LARGE_FFT));
         auto fftsz = obs_properties_add_int_slider(props, P_FFT_SIZE, T(P_FFT_SIZE), 128, 8192, 64);
-        obs_property_set_long_description(autofftsz, T(P_AUTO_FFT_DESC));
         obs_property_set_long_description(fftsz, T(P_FFT_DESC));
-        obs_property_set_long_description(largefft, T(P_LARGE_FFT_DESC));
-        obs_property_set_modified_callback(autofftsz, [](obs_properties_t *props, [[maybe_unused]] obs_property_t *property, obs_data_t *settings) -> bool {
-            auto enable = !obs_data_get_bool(settings, P_AUTO_FFT_SIZE);
-            obs_property_set_enabled(obs_properties_get(props, P_FFT_SIZE), enable);
-            obs_property_set_enabled(obs_properties_get(props, P_ENABLE_LARGE_FFT), enable);
-            return true;
-            });
-        obs_property_set_modified_callback(largefft, [](obs_properties_t *props, [[maybe_unused]] obs_property_t *property, obs_data_t *settings) -> bool {
-            auto enable = obs_data_get_bool(settings, P_ENABLE_LARGE_FFT);
-            obs_property_int_set_limits(obs_properties_get(props, P_FFT_SIZE), 128, enable ? (1 << 16) : 8192, 64);
-            return true;
-            });
-
-        // fft window function
-        auto wndlist = obs_properties_add_list(props, P_WINDOW, T(P_WINDOW), OBS_COMBO_TYPE_LIST, OBS_COMBO_FORMAT_STRING);
-        obs_property_list_add_string(wndlist, T(P_NONE), P_NONE);
-        obs_property_list_add_string(wndlist, T(P_HANN), P_HANN);
-        obs_property_list_add_string(wndlist, T(P_HAMMING), P_HAMMING);
-        obs_property_list_add_string(wndlist, T(P_BLACKMAN), P_BLACKMAN);
-        obs_property_list_add_string(wndlist, T(P_BLACKMAN_HARRIS), P_BLACKMAN_HARRIS);
-        obs_property_list_add_string(wndlist, T(P_POWER_OF_SINE), P_POWER_OF_SINE);
-        obs_property_set_long_description(wndlist, T(P_WINDOW_DESC));
-        obs_properties_add_int(props, P_SINE_EXPONENT, T(P_SINE_EXPONENT), 1, 16, 1);
-        obs_property_set_modified_callback(wndlist, [](obs_properties_t *props, [[maybe_unused]] obs_property_t *property, obs_data_t *settings) -> bool {
-            auto enable = p_equ(obs_data_get_string(settings, P_WINDOW), P_POWER_OF_SINE) && obs_property_visible(obs_properties_get(props, P_WINDOW));
-            set_prop_visible(props, P_SINE_EXPONENT, enable);
-            return true;
-            });
 
         // smoothing
         auto grav = obs_properties_add_float_slider(props, P_GRAVITY, T(P_GRAVITY), 0.0, 1.0, 0.01);
@@ -372,9 +333,6 @@ void WAVSource::get_settings(obs_data_t *settings)
     m_channel_base = (int)obs_data_get_int(settings, P_CHANNEL);
     m_channel_spacing = (int)obs_data_get_int(settings, P_CHANNEL_SPACING);
     m_fft_size = (size_t)obs_data_get_int(settings, P_FFT_SIZE);
-    m_auto_fft_size = obs_data_get_bool(settings, P_AUTO_FFT_SIZE);
-    auto wnd = obs_data_get_string(settings, P_WINDOW);
-    m_sine_exponent = (int)obs_data_get_int(settings, P_SINE_EXPONENT);
     m_gravity = (float)obs_data_get_double(settings, P_GRAVITY);
     m_cutoff_low = (int)obs_data_get_int(settings, P_CUTOFF_LOW);
     m_cutoff_high = (int)obs_data_get_int(settings, P_CUTOFF_HIGH);
@@ -423,19 +381,6 @@ void WAVSource::get_settings(obs_data_t *settings)
         m_audio_source_name = src_name;
     else
         m_audio_source_name.clear();
-
-    if(p_equ(wnd, P_HANN))
-        m_window_func = FFTWindow::HANN;
-    else if(p_equ(wnd, P_HAMMING))
-        m_window_func = FFTWindow::HAMMING;
-    else if(p_equ(wnd, P_BLACKMAN))
-        m_window_func = FFTWindow::BLACKMAN;
-    else if(p_equ(wnd, P_BLACKMAN_HARRIS))
-        m_window_func = FFTWindow::BLACKMAN_HARRIS;
-    else if(p_equ(wnd, P_POWER_OF_SINE))
-        m_window_func = FFTWindow::POWER_OF_SINE;
-    else
-        m_window_func = FFTWindow::NONE;
 
     m_meter_mode = false;
 }
@@ -784,8 +729,6 @@ void WAVSource::update(obs_data_t *settings)
     if(m_meter_mode)
     {
         // turn off stuff we don't need in this mode
-        m_window_func = FFTWindow::NONE;
-        m_auto_fft_size = false;
         m_slope = 0.0f;
         m_stereo = false;
         m_normalize_volume = false;
@@ -816,13 +759,6 @@ void WAVSource::update(obs_data_t *settings)
         m_fps = double(vinfo.fps_num) / double(vinfo.fps_den);
     else
         m_fps = 60.0;
-    if(m_auto_fft_size)
-    {
-        // align to 64-byte multiple so that N/2 is AVX aligned
-        m_fft_size = size_t(m_audio_info.samples_per_sec / m_fps) & -16;
-        if(m_fft_size < 128)
-            m_fft_size = 128;
-    }
 
     // initialize buffers
     auto spectrum_mode = !m_meter_mode;
@@ -846,50 +782,17 @@ void WAVSource::update(obs_data_t *settings)
     }
 
     // window function
-    if(m_window_func != FFTWindow::NONE)
-    {
-        // precompute window coefficients
-        m_window_coefficients.reset(m_fft_size);
-        const auto N = m_fft_size - 1;
-        constexpr auto pi2 = 2 * pi;
-        constexpr auto pi4 = 4 * pi;
-        constexpr auto pi6 = 6 * pi;
-        switch(m_window_func)
-        {
-        case FFTWindow::HAMMING:
-            for(size_t i = 0; i < m_fft_size; ++i)
-                m_window_coefficients[i] = 0.53836f - (0.46164f * std::cos((pi2 * i) / N));
-            break;
+    // precompute window coefficients
+    m_window_coefficients.reset(m_fft_size);
+    const auto N = m_fft_size - 1;
+    constexpr auto pi2 = 2 * pi;
+    for (size_t i = 0; i < m_fft_size; ++i)
+        m_window_coefficients[i] = 0.5f * (1 - std::cos((pi2 * i) / N));
 
-        case FFTWindow::BLACKMAN:
-            for(size_t i = 0; i < m_fft_size; ++i)
-                m_window_coefficients[i] = 0.42f - (0.5f * std::cos((pi2 * i) / N)) + (0.08f * std::cos((pi4 * i) / N));
-            break;
-
-        case FFTWindow::BLACKMAN_HARRIS:
-            for(size_t i = 0; i < m_fft_size; ++i)
-                m_window_coefficients[i] = 0.35875f - (0.48829f * std::cos((pi2 * i) / N)) + (0.14128f * std::cos((pi4 * i) / N)) - (0.01168f * std::cos((pi6 * i) / N));
-            break;
-
-        case FFTWindow::POWER_OF_SINE:
-            for(size_t i = 0; i < m_fft_size; ++i)
-                m_window_coefficients[i] = std::pow(std::sin((pi * i) / N), (float)m_sine_exponent);
-            break;
-
-        case FFTWindow::HANN:
-        default:
-            for(size_t i = 0; i < m_fft_size; ++i)
-                m_window_coefficients[i] = 0.5f * (1 - std::cos((pi2 * i) / N));
-            break;
-        }
-
-        auto sum = 0.0f;
-        for(size_t i = 0; i < m_fft_size; ++i)
-            sum += m_window_coefficients[i];
-        m_window_sum = sum;
-    }
-    else
-        m_window_sum = (float)m_fft_size;
+    auto sum = 0.0f;
+    for(size_t i = 0; i < m_fft_size; ++i)
+        sum += m_window_coefficients[i];
+    m_window_sum = sum;
 
     m_last_silent = false;
     m_show = obs_source_showing(m_source);

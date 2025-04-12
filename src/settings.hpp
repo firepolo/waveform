@@ -39,17 +39,6 @@ static inline bool p_equ(const char *s1, const char *s2) { return std::strcmp(s1
 
 #define P_LOG_SCALE         "log_scale"
 
-#define P_WINDOW            "window"
-#define P_HANN              "hann"
-#define P_HAMMING           "hamming"
-#define P_BLACKMAN          "blackman"
-#define P_BLACKMAN_HARRIS   "blackman_harris"
-#define P_POWER_OF_SINE     "power_of_sine"
-#define P_SINE_EXPONENT     "sine_exponent"
-
-#define P_ENABLE_LARGE_FFT  "enable_large_fft"
-
-#define P_AUTO_FFT_SIZE     "auto_fft_size"
 #define P_FFT_SIZE          "fft_size"
 
 #define P_CHANNEL_MODE      "channel_mode"
@@ -94,9 +83,7 @@ static inline bool p_equ(const char *s1, const char *s2) { return std::strcmp(s1
 
 // tooltip descriptions
 #define P_CHAN_DESC         "chan_desc"
-#define P_AUTO_FFT_DESC     "auto_fft_desc"
 #define P_FFT_DESC          "fft_desc"
-#define P_WINDOW_DESC       "window_desc"
 #define P_GRAVITY_DESC      "gravity_desc"
 #define P_INTERP_DESC       "interp_desc"
 #define P_SLOPE_DESC        "slope_desc"

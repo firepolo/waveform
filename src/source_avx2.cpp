@@ -101,13 +101,10 @@ void WAVSourceAVX2::tick_spectrum([[maybe_unused]] float seconds)
         }
 
         // window function
-        if(m_window_func != FFTWindow::NONE)
-        {
-            auto inbuf = m_fft_input.get();
-            auto mulbuf = m_window_coefficients.get();
-            for(auto i = 0u; i < m_fft_size; i += step)
-                _mm256_store_ps(&inbuf[i], _mm256_mul_ps(_mm256_load_ps(&inbuf[i]), _mm256_load_ps(&mulbuf[i])));
-        }
+        auto inbuf = m_fft_input.get();
+        auto mulbuf = m_window_coefficients.get();
+        for(auto i = 0u; i < m_fft_size; i += step)
+            _mm256_store_ps(&inbuf[i], _mm256_mul_ps(_mm256_load_ps(&inbuf[i]), _mm256_load_ps(&mulbuf[i])));
 
         // FFT
         if(m_fft_plan != nullptr)

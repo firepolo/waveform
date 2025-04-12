@@ -135,9 +135,7 @@ protected:
     int64_t m_ts_offset = 0;    // audio sync offset in nanoseconds
 
     // settings
-    FFTWindow m_window_func = FFTWindow::HANN;
     bool m_stereo = false;
-    bool m_auto_fft_size = true;
     int m_cutoff_low = 0;
     int m_cutoff_high = 24000;
     int m_floor = -120;
