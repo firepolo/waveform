@@ -153,9 +153,6 @@ protected:
     int m_step_width = 0;
     int m_step_gap = 0;
     int m_num_bars = 0;
-    bool m_invert = false;
-    float m_deadzone = 0.0f; // radial display deadzone
-    bool m_hide_on_silent = false;
     int m_channel_spacing = 0;
     float m_rolloff_q = 0.0f;
     float m_rolloff_rate = 0.0f;
@@ -212,8 +209,6 @@ protected:
 
     void init_interp(unsigned int sz);
     void init_rolloff();
-
-    void render_bars(gs_effect_t *effect);
 
     gs_technique_t *get_shader_tech();
     void set_shader_vars(float cpos, float miny, float minpos, float channel_offset, float border_top, float border_bottom);

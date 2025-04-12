@@ -123,13 +123,6 @@ namespace callbacks {
         obs_data_set_default_int(settings, P_WIDTH, 800);
         obs_data_set_default_int(settings, P_HEIGHT, 225);
         obs_data_set_default_bool(settings, P_LOG_SCALE, true);
-        obs_data_set_default_bool(settings, P_MIRROR_FREQ_AXIS, false);
-        obs_data_set_default_bool(settings, P_RADIAL, false);
-        obs_data_set_default_bool(settings, P_INVERT, false);
-        obs_data_set_default_double(settings, P_DEADZONE, 20.0);
-        obs_data_set_default_double(settings, P_RADIAL_ARC, 360.0);
-        obs_data_set_default_double(settings, P_RADIAL_ROTATION, 0.0);
-        obs_data_set_default_bool(settings, P_CAPS, false);
         obs_data_set_default_string(settings, P_CHANNEL_MODE, P_MONO);
         obs_data_set_default_int(settings, P_CHANNEL, 0);
         obs_data_set_default_int(settings, P_CHANNEL_SPACING, 0);
@@ -154,8 +147,6 @@ namespace callbacks {
         obs_data_set_default_int(settings, P_MIN_BAR_HEIGHT, 0);
         obs_data_set_default_int(settings, P_METER_BUF, 150);
         obs_data_set_default_bool(settings, P_RMS_MODE, true);
-        obs_data_set_default_bool(settings, P_HIDE_SILENT, false);
-        obs_data_set_default_bool(settings, P_IGNORE_MUTE, false);
         obs_data_set_default_bool(settings, P_NORMALIZE_VOLUME, false);
         obs_data_set_default_int(settings, P_VOLUME_TARGET, -8);
         obs_data_set_default_int(settings, P_MAX_GAIN, 30);
@@ -170,12 +161,6 @@ namespace callbacks {
         auto srclist = obs_properties_add_list(props, P_AUDIO_SRC, T(P_AUDIO_SRC), OBS_COMBO_TYPE_LIST, OBS_COMBO_FORMAT_STRING);
         obs_property_list_add_string(srclist, T(P_NONE), P_NONE);
         obs_property_list_add_string(srclist, T(P_OUTPUT_BUS), P_OUTPUT_BUS);
-        obs_property_set_modified_callback(srclist, [](obs_properties_t *props, [[maybe_unused]] obs_property_t *property, obs_data_t *settings) -> bool {
-            auto src = obs_data_get_string(settings, P_AUDIO_SRC);
-            auto enable = (src == nullptr) || !p_equ(src, P_OUTPUT_BUS);
-            set_prop_visible(props, P_IGNORE_MUTE, enable);
-            return true;
-            });
 
         for(const auto& str : enumerate_audio_sources())
             obs_property_list_add_string(srclist, str.c_str(), str.c_str());
@@ -184,13 +169,6 @@ namespace callbacks {
         auto audio_sync = obs_properties_add_int_slider(props, P_AUDIO_SYNC_OFFSET, T(P_AUDIO_SYNC_OFFSET), -1000, 1000, 10);
         obs_property_int_set_suffix(audio_sync, " ms");
         obs_property_set_long_description(audio_sync, T(P_AUDIO_SYNC_DESC));
-
-        // hide on silent audio
-        obs_properties_add_bool(props, P_HIDE_SILENT, T(P_HIDE_SILENT));
-
-        // ignore mute
-        auto ignore_mute = obs_properties_add_bool(props, P_IGNORE_MUTE, T(P_IGNORE_MUTE));
-        obs_property_set_long_description(ignore_mute, T(P_IGNORE_MUTE_DESC));
 
         // volume normalization
         auto vol = obs_properties_add_bool(props, P_NORMALIZE_VOLUME, T(P_NORMALIZE_VOLUME));
@@ -232,7 +210,6 @@ namespace callbacks {
             set_prop_visible(props, P_STEP_WIDTH, step);
             set_prop_visible(props, P_STEP_GAP, step);
             set_prop_visible(props, P_MIN_BAR_HEIGHT, bar || step);
-            set_prop_visible(props, P_CAPS, bar);
 
             // meter mode
             bool notmeter = !(meter || step_meter);
@@ -246,13 +223,7 @@ namespace callbacks {
             set_prop_visible(props, P_CHANNEL_SPACING, notmeter && p_equ(obs_data_get_string(settings, P_CHANNEL_MODE), P_STEREO));
             set_prop_visible(props, P_WINDOW, notmeter && !waveform);
             set_prop_visible(props, P_SINE_EXPONENT, notmeter && !waveform && p_equ(obs_data_get_string(settings, P_WINDOW), P_POWER_OF_SINE));
-            set_prop_visible(props, P_RADIAL, notmeter);
-            set_prop_visible(props, P_DEADZONE, notmeter && obs_data_get_bool(settings, P_RADIAL));
-            set_prop_visible(props, P_RADIAL_ARC, notmeter && obs_data_get_bool(settings, P_RADIAL));
-            set_prop_visible(props, P_RADIAL_ROTATION, notmeter && obs_data_get_bool(settings, P_RADIAL));
-            set_prop_visible(props, P_INVERT, notmeter && obs_data_get_bool(settings, P_RADIAL));
             set_prop_visible(props, P_LOG_SCALE, notmeter && !waveform);
-            set_prop_visible(props, P_MIRROR_FREQ_AXIS, notmeter && !waveform);
             set_prop_visible(props, P_WIDTH, notmeter);
             set_prop_visible(props, P_AUTO_FFT_SIZE, notmeter && !waveform);
             set_prop_visible(props, P_FFT_SIZE, notmeter && !waveform);
@@ -270,34 +241,6 @@ namespace callbacks {
 
         // log scale
         obs_properties_add_bool(props, P_LOG_SCALE, T(P_LOG_SCALE));
-
-        // mirror frequency axis
-        auto mirror = obs_properties_add_bool(props, P_MIRROR_FREQ_AXIS, T(P_MIRROR_FREQ_AXIS));
-        obs_property_set_long_description(mirror, T(P_MIRROR_DESC));
-
-        // radial layout
-        auto rad = obs_properties_add_bool(props, P_RADIAL, T(P_RADIAL));
-        obs_properties_add_bool(props, P_INVERT, T(P_INVERT));
-        auto deadzone = obs_properties_add_float_slider(props, P_DEADZONE, T(P_DEADZONE), 0.0, 100.0, 0.1);
-        auto arc = obs_properties_add_float_slider(props, P_RADIAL_ARC, T(P_RADIAL_ARC), 0.0, 360.0, 0.1);
-        auto rot = obs_properties_add_float_slider(props, P_RADIAL_ROTATION, T(P_RADIAL_ROTATION), 0.0, 360.0, 0.1);
-        obs_property_float_set_suffix(deadzone, "%");
-        obs_property_set_long_description(deadzone, T(P_DEADZONE_DESC));
-        obs_property_float_set_suffix(arc, "°");
-        obs_property_float_set_suffix(rot, "°");
-        obs_property_set_long_description(arc, T(P_RADIAL_ARC_DESC));
-        obs_property_set_modified_callback(rad, [](obs_properties_t *props, [[maybe_unused]] obs_property_t *property, obs_data_t *settings) -> bool {
-            auto enable = obs_data_get_bool(settings, P_RADIAL) && obs_property_visible(obs_properties_get(props, P_RADIAL));
-            set_prop_visible(props, P_DEADZONE, enable);
-            set_prop_visible(props, P_RADIAL_ARC, enable);
-            set_prop_visible(props, P_RADIAL_ROTATION, enable);
-            set_prop_visible(props, P_INVERT, enable);
-            return true;
-            });
-
-        // rounded caps
-        auto caps = obs_properties_add_bool(props, P_CAPS, T(P_CAPS));
-        obs_property_set_long_description(caps, T(P_CAPS_DESC));
 
         // meter
         obs_properties_add_bool(props, P_RMS_MODE, T(P_RMS_MODE));
@@ -424,8 +367,6 @@ void WAVSource::get_settings(obs_data_t *settings)
     auto src_name = obs_data_get_string(settings, P_AUDIO_SRC);
     m_width = (unsigned int)obs_data_get_int(settings, P_WIDTH);
     m_height = (unsigned int)obs_data_get_int(settings, P_HEIGHT);
-    m_invert = obs_data_get_bool(settings, P_INVERT);
-    auto deadzone = (float)obs_data_get_double(settings, P_DEADZONE) / 100.0f;
     auto channel_mode = obs_data_get_string(settings, P_CHANNEL_MODE);
     m_stereo = p_equ(channel_mode, P_STEREO);
     m_channel_base = (int)obs_data_get_int(settings, P_CHANNEL);
@@ -451,8 +392,6 @@ void WAVSource::get_settings(obs_data_t *settings)
     m_min_bar_height = (int)obs_data_get_int(settings, P_MIN_BAR_HEIGHT);
     m_meter_rms = obs_data_get_bool(settings, P_RMS_MODE);
     m_meter_ms = (int)obs_data_get_int(settings, P_METER_BUF);
-    m_hide_on_silent = obs_data_get_bool(settings, P_HIDE_SILENT);
-    m_ignore_mute = obs_data_get_bool(settings, P_IGNORE_MUTE);
     m_normalize_volume = obs_data_get_bool(settings, P_NORMALIZE_VOLUME);
     m_volume_target = (float)obs_data_get_int(settings, P_VOLUME_TARGET);
     m_max_gain = (float)obs_data_get_int(settings, P_MAX_GAIN);
@@ -1030,17 +969,8 @@ void WAVSource::tick(float seconds)
 void WAVSource::render([[maybe_unused]] gs_effect_t *effect)
 {
     std::lock_guard lock(m_mtx);
-    if((m_last_silent && m_hide_on_silent) || m_vbuf == nullptr)
+    if(m_last_silent || m_vbuf == nullptr)
         return;
-
-    render_bars(effect);
-}
-
-void WAVSource::render_bars([[maybe_unused]] gs_effect_t *effect)
-{
-    //std::lock_guard lock(m_mtx); // now locked in render()
-    //if(m_last_silent)
-    //    return;
 
     auto tech = get_shader_tech();
 
@@ -1053,42 +983,42 @@ void WAVSource::render_bars([[maybe_unused]] gs_effect_t *effect)
     const auto channel_offset = m_channel_spacing * 0.5f;
     auto border_top = 0.0f;
     auto border_bottom = cpos;
-    if(m_channel_spacing > 0)
+    if (m_channel_spacing > 0)
         border_bottom -= channel_offset;
-    if(m_min_bar_height > 0)
+    if (m_min_bar_height > 0)
         border_bottom -= m_min_bar_height;
     border_bottom = std::clamp(border_bottom, border_top, cpos);
 
     auto max_steps = (size_t)((cpos - channel_offset) / step_stride);
-    if(((int)cpos - (int)(max_steps * step_stride) - (int)channel_offset) > m_step_width)
+    if (((int)cpos - (int)(max_steps * step_stride) - (int)channel_offset) > m_step_width)
         ++max_steps;
 
     // interpolation
     auto miny = cpos;
     auto minpos = 0u;
-    for(auto channel = 0u; channel < (m_stereo ? 2u : 1u); ++channel)
+    for (auto channel = 0u; channel < (m_stereo ? 2u : 1u); ++channel)
     {
-        if(m_meter_mode)
+        if (m_meter_mode)
         {
-            for(auto i = 0u; i < m_capture_channels; ++i)
+            for (auto i = 0u; i < m_capture_channels; ++i)
                 m_interp_bufs[0][i] = m_meter_val[i];
         }
         else
         {
-            for(auto i = 0; i < m_num_bars; ++i)
+            for (auto i = 0; i < m_num_bars; ++i)
             {
                 float sum = 0.0f;
                 auto count = (size_t)m_band_widths[i];
-                for(size_t j = 0; j < count; ++j)
+                for (size_t j = 0; j < count; ++j)
                     sum += m_decibels[channel][(size_t)m_interp_indices[i] + j];
                 m_interp_bufs[channel][i] = sum / (float)count;
             }
         }
 
-        for(auto i = 0; i < m_num_bars; ++i)
+        for (auto i = 0; i < m_num_bars; ++i)
         {
             auto val = lerp(border_top, border_bottom, std::clamp(m_ceiling - m_interp_bufs[channel][i], 0.0f, (float)dbrange) / dbrange);
-            if(val < miny)
+            if (val < miny)
             {
                 miny = val;
                 minpos = i;
@@ -1106,18 +1036,18 @@ void WAVSource::render_bars([[maybe_unused]] gs_effect_t *effect)
 
     auto vbdata = gs_vertexbuffer_get_data(m_vbuf);
 
-    for(auto channel = 0u; channel < (m_stereo ? 2u : 1u); ++channel)
+    for (auto channel = 0u; channel < (m_stereo ? 2u : 1u); ++channel)
     {
         auto vertpos = 0u;
 
-        for(auto i = 0; i < m_num_bars; ++i)
+        for (auto i = 0; i < m_num_bars; ++i)
         {
             auto val = m_interp_bufs[channel][i];
 
             auto x1 = (float)(i * bar_stride);
             auto x2 = x1 + m_bar_width;
             auto offset = channel_offset;
-            if(channel)
+            if (channel)
             {
                 val = bottom - val;
                 offset = -offset;
@@ -1134,7 +1064,7 @@ void WAVSource::render_bars([[maybe_unused]] gs_effect_t *effect)
 
         gs_vertexbuffer_flush(m_vbuf);
 
-        if(vertpos > 0)
+        if (vertpos > 0)
             gs_draw(GS_TRIS, 0, vertpos);
     }
 
