@@ -74,7 +74,6 @@ protected:
     float m_meter_val[2] = { 0.0f, 0.0f };  // dBFS
     float m_meter_buf[2] = { 0.0f, 0.0f };  // EMA
     bool m_meter_rms = false;               // RMS mode
-    bool m_meter_mode = false;              // either meter or stepped meter display mode is selected
     int m_meter_ms = 100;                   // milliseconds of audio data to buffer
 
     // waveform

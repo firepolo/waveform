@@ -348,8 +348,6 @@ void WAVSource::get_settings(obs_data_t *settings)
         m_audio_source_name = src_name;
     else
         m_audio_source_name.clear();
-
-    m_meter_mode = false;
 }
 
 void WAVSource::recapture_audio()
@@ -593,9 +591,6 @@ WAVSource::~WAVSource()
 unsigned int WAVSource::width()
 {
     std::lock_guard lock(m_mtx);
-
-    if(m_meter_mode)
-        return (m_bar_width * m_capture_channels) + ((m_capture_channels > 1) ? m_bar_gap : 0);
     return m_width;
 }
 
@@ -688,23 +683,6 @@ void WAVSource::update(obs_data_t *settings)
     if(m_capture_channels == 0)
         LogWarn << "Unknown channel config: " << (unsigned int)m_audio_info.speakers;
 
-    // meter mode
-    if(m_meter_mode)
-    {
-        // turn off stuff we don't need in this mode
-        m_slope = 0.0f;
-        m_normalize_volume = false;
-
-        // repurpose m_fft_size for meter buffer size
-        m_fft_size = size_t(m_audio_info.samples_per_sec * (m_meter_ms / 1000.0)) & -16;
-
-        memset(m_meter_pos, 0, sizeof(m_meter_pos));
-        for(auto& i : m_meter_buf)
-            i = DB_MIN;
-        for(auto& i : m_meter_val)
-            i = DB_MIN;
-    }
-
     if(m_normalize_volume)
     {
         m_input_rms = 0.0f;
@@ -723,25 +701,20 @@ void WAVSource::update(obs_data_t *settings)
         m_fps = 60.0;
 
     // initialize buffers
-    auto spectrum_mode = !m_meter_mode;
     m_output_channels = (m_capture_channels > 1) ? 2u : 1u;
     for(auto i = 0u; i < m_output_channels; ++i)
     {
-        auto count = spectrum_mode ? m_fft_size / 2 : m_fft_size;
+        auto count = m_fft_size / 2;
         m_decibels[i].reset(count);
-        if(spectrum_mode)
-        {
-            m_tsmooth_buf[i].reset(count);
-            std::fill(m_tsmooth_buf[i].get(), m_tsmooth_buf[i].get() + count, 0.0f);
-        }
-        std::fill(m_decibels[i].get(), m_decibels[i].get() + count, m_meter_mode ? 0.0f : DB_MIN);
+
+        m_tsmooth_buf[i].reset(count);
+        std::fill(m_tsmooth_buf[i].get(), m_tsmooth_buf[i].get() + count, 0.0f);
+        std::fill(m_decibels[i].get(), m_decibels[i].get() + count, DB_MIN);
     }
-    if(spectrum_mode)
-    {
-        m_fft_input.reset(m_fft_size);
-        m_fft_output.reset(m_fft_size);
-        m_fft_plan = fftwf_plan_dft_r2c_1d((int)m_fft_size, m_fft_input.get(), m_fft_output.get(), FFTW_ESTIMATE);
-    }
+
+    m_fft_input.reset(m_fft_size);
+    m_fft_output.reset(m_fft_size);
+    m_fft_plan = fftwf_plan_dft_r2c_1d((int)m_fft_size, m_fft_input.get(), m_fft_output.get(), FFTW_ESTIMATE);
 
     // window function
     // precompute window coefficients
@@ -763,34 +736,17 @@ void WAVSource::update(obs_data_t *settings)
 
     recapture_audio();
     m_capture_ts = os_gettime_ns();
-    if(!m_meter_mode)
-    {
-        // fill input buffers with silent audio to avoid startup lag e.g. when changing settings
-        for(auto i = 0u; i < m_capture_channels; ++i)
-            circlebuf_push_back_zero(&m_capturebufs[i], m_fft_size * sizeof(float));
-    }
+    for(auto i = 0u; i < m_capture_channels; ++i)
+        circlebuf_push_back_zero(&m_capturebufs[i], m_fft_size * sizeof(float));
 
     // precomupte interpolated indices
-    if(m_meter_mode)
-    {
-        // channel meter rendering through the bar renderer
-        // emulate 1-2 bar spectrum graph
-        m_interp_indices.clear();
-        for(auto& i : m_interp_bufs)
-            i.clear();
-        m_interp_bufs[0].resize(m_capture_channels);
-        m_num_bars = m_capture_channels;
-    }
-    else
-    {
-        const auto bar_stride = m_bar_width + m_bar_gap;
-        m_num_bars = (int)(m_width / bar_stride);
-        if(((int)m_width - (m_num_bars * bar_stride)) >= m_bar_width)
-            ++m_num_bars;
-        init_interp(m_num_bars + 1); // make extra band for last bar
-        for(auto& i : m_interp_bufs)
-            i.resize(m_num_bars);
-    }
+    const auto bar_stride = m_bar_width + m_bar_gap;
+    m_num_bars = (int)(m_width / bar_stride);
+    if(((int)m_width - (m_num_bars * bar_stride)) >= m_bar_width)
+        ++m_num_bars;
+    init_interp(m_num_bars + 1); // make extra band for last bar
+    for(auto& i : m_interp_bufs)
+        i.resize(m_num_bars);
 
     // slope
     if(m_slope > 0.0f)
@@ -825,10 +781,7 @@ void WAVSource::tick(float seconds)
     if(m_capture_channels == 0)
         return;
 
-    if(m_meter_mode)
-        tick_meter(seconds);
-    else
-        tick_spectrum(seconds);
+    tick_spectrum(seconds);
 }
 
 void WAVSource::render([[maybe_unused]] gs_effect_t *effect)
@@ -859,21 +812,13 @@ void WAVSource::render([[maybe_unused]] gs_effect_t *effect)
     auto minpos = 0u;
     for (auto channel = 0u; channel < 1u; ++channel)
     {
-        if (m_meter_mode)
+        for (auto i = 0; i < m_num_bars; ++i)
         {
-            for (auto i = 0u; i < m_capture_channels; ++i)
-                m_interp_bufs[0][i] = m_meter_val[i];
-        }
-        else
-        {
-            for (auto i = 0; i < m_num_bars; ++i)
-            {
-                float sum = 0.0f;
-                auto count = (size_t)m_band_widths[i];
-                for (size_t j = 0; j < count; ++j)
-                    sum += m_decibels[channel][(size_t)m_interp_indices[i] + j];
-                m_interp_bufs[channel][i] = sum / (float)count;
-            }
+            float sum = 0.0f;
+            auto count = (size_t)m_band_widths[i];
+            for (size_t j = 0; j < count; ++j)
+                sum += m_decibels[channel][(size_t)m_interp_indices[i] + j];
+            m_interp_bufs[channel][i] = sum / (float)count;
         }
 
         for (auto i = 0; i < m_num_bars; ++i)
