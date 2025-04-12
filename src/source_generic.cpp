@@ -40,7 +40,7 @@ void WAVSourceGeneric::tick_spectrum([[maybe_unused]] float seconds)
         for(auto channel = 0u; channel < m_capture_channels; ++channel)
             if(m_tsmooth_buf[channel] != nullptr)
                 memset(m_tsmooth_buf[channel].get(), 0, outsz * sizeof(float));
-        for(auto channel = 0; channel < (m_stereo ? 2 : 1); ++channel)
+        for(auto channel = 0; channel < 1; ++channel)
             for(size_t i = 0; i < outsz; ++i)
                 m_decibels[channel][i] = DB_MIN;
         m_last_silent = true;
@@ -79,8 +79,7 @@ void WAVSourceGeneric::tick_spectrum([[maybe_unused]] float seconds)
             auto floor = (float)(m_floor - 10);
             for(size_t i = 0; i < outsz; i += step)
             {
-                const auto ch = (m_stereo) ? channel : 0u;
-                if(m_decibels[ch][i] > floor)
+                if(m_decibels[0u][i] > floor)
                 {
                     outsilent = false;
                     break;
@@ -133,13 +132,7 @@ void WAVSourceGeneric::tick_spectrum([[maybe_unused]] float seconds)
     if(m_output_channels > m_capture_channels)
         memcpy(m_decibels[1].get(), m_decibels[0].get(), outsz * sizeof(float));
 
-    if(m_stereo)
-    {
-        for(auto channel = 0; channel < 2; ++channel)
-            for(size_t i = 0; i < outsz; ++i)
-                m_decibels[channel][i] = dbfs(m_decibels[channel][i]);
-    }
-    else if(m_capture_channels > 1)
+    if(m_capture_channels > 1)
     {
         for(size_t i = 0; i < outsz; ++i)
             m_decibels[0][i] = dbfs((m_decibels[0][i] + m_decibels[1][i]) * 0.5f);
@@ -153,14 +146,14 @@ void WAVSourceGeneric::tick_spectrum([[maybe_unused]] float seconds)
     if(m_normalize_volume)
     {
         const auto volume_compensation = std::min(m_volume_target - dbfs(m_input_rms), m_max_gain);
-        for(auto channel = 0; channel < (m_stereo ? 2 : 1); ++channel)
+        for(auto channel = 0; channel < 1; ++channel)
             for(size_t i = 1; i < outsz; ++i)
                 m_decibels[channel][i] += volume_compensation;
     }
 
     if((m_rolloff_q > 0.0f) && (m_rolloff_rate > 0.0f))
     {
-        for(auto channel = 0; channel < (m_stereo ? 2 : 1); ++channel)
+        for(auto channel = 0; channel < 1; ++channel)
         {
             for(size_t i = 1; i < outsz; ++i)
             {
@@ -270,7 +263,7 @@ void WAVSourceGeneric::tick_waveform([[maybe_unused]] float seconds)
     {
         if(m_last_silent)
             return;
-        for(auto channel = 0; channel < (m_stereo ? 2 : 1); ++channel)
+        for(auto channel = 0; channel < 1; ++channel)
             for(size_t i = 0; i < outsz; ++i)
                 m_decibels[channel][i] = DB_MIN;
         m_last_silent = true;
@@ -344,7 +337,7 @@ void WAVSourceGeneric::tick_waveform([[maybe_unused]] float seconds)
 
     if(m_last_silent)
     {
-        for(auto channel = 0; channel < (m_stereo ? 2 : 1); ++channel)
+        for(auto channel = 0; channel < 1; ++channel)
             for(size_t i = 0; i < outsz; ++i)
                 m_decibels[channel][i] = DB_MIN;
         return;
@@ -353,13 +346,7 @@ void WAVSourceGeneric::tick_waveform([[maybe_unused]] float seconds)
     if(m_output_channels > m_capture_channels)
         memcpy(m_decibels[1].get(), m_decibels[0].get(), outsz * sizeof(float));
 
-    if(m_stereo)
-    {
-        for(auto channel = 0; channel < 2; ++channel)
-            for(size_t i = (outsz - counts[channel]); i < outsz; ++i)
-                m_decibels[channel][i] = dbfs(std::abs(m_decibels[channel][i]));
-    }
-    else if(m_capture_channels > 1)
+    if(m_capture_channels > 1)
     {
         for(size_t i = (outsz - counts[0]); i < outsz; ++i)
             m_decibels[0][i] = dbfs((std::abs(m_decibels[0][i]) + std::abs(m_decibels[1][i])) * 0.5f);
@@ -373,7 +360,7 @@ void WAVSourceGeneric::tick_waveform([[maybe_unused]] float seconds)
     if(m_normalize_volume)
     {
         const auto volume_compensation = std::min(m_volume_target - dbfs(m_input_rms), m_max_gain);
-        for(auto channel = 0; channel < (m_stereo ? 2 : 1); ++channel)
+        for(auto channel = 0; channel < 1; ++channel)
             for(size_t i = (outsz - counts[channel]); i < outsz; ++i)
                 m_decibels[channel][i] += volume_compensation;
     }

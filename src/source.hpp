@@ -29,30 +29,6 @@
 using AVXBufR = AlignedBuffer<float>;
 using AVXBufC = AlignedBuffer<fftwf_complex>;
 
-enum class FFTWindow
-{
-    NONE,
-    HANN,
-    HAMMING,
-    BLACKMAN,
-    BLACKMAN_HARRIS,
-    POWER_OF_SINE
-};
-
-enum class FilterMode
-{
-    NONE,
-    GAUSS
-};
-
-// temporal smoothing
-enum class TSmoothingMode
-{
-    NONE,
-    EXPONENTIAL,
-    TVEXPONENTIAL
-};
-
 enum class DisplayMode
 {
     CURVE,
@@ -61,13 +37,6 @@ enum class DisplayMode
     METER,
     STEPPED_METER,
     WAVEFORM
-};
-
-enum class ChannelMode
-{
-    MONO,
-    STEREO,
-    SINGLE
 };
 
 class WAVSource
@@ -135,7 +104,6 @@ protected:
     int64_t m_ts_offset = 0;    // audio sync offset in nanoseconds
 
     // settings
-    bool m_stereo = false;
     int m_cutoff_low = 0;
     int m_cutoff_high = 24000;
     int m_floor = -120;
@@ -151,15 +119,12 @@ protected:
     int m_step_width = 0;
     int m_step_gap = 0;
     int m_num_bars = 0;
-    int m_channel_spacing = 0;
     float m_rolloff_q = 0.0f;
     float m_rolloff_rate = 0.0f;
     bool m_normalize_volume = false;
     float m_volume_target = -3.0f;  // volume normalization target
     float m_max_gain = 30.0f;       // maximum volume normalization gain
     int m_min_bar_height = 0;
-    int m_channel_base = 0; // channel to use in single channel mode
-    bool m_ignore_mute = false;
     int m_sine_exponent = 2;
 
     // interpolation
@@ -209,7 +174,7 @@ protected:
     void init_rolloff();
 
     gs_technique_t *get_shader_tech();
-    void set_shader_vars(float cpos, float miny, float minpos, float channel_offset, float border_top, float border_bottom);
+    void set_shader_vars();
 
     virtual void update_input_rms() = 0;    // update RMS window
 

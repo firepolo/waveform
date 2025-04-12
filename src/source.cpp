@@ -123,9 +123,6 @@ namespace callbacks {
         obs_data_set_default_int(settings, P_WIDTH, 800);
         obs_data_set_default_int(settings, P_HEIGHT, 225);
         obs_data_set_default_bool(settings, P_LOG_SCALE, true);
-        obs_data_set_default_string(settings, P_CHANNEL_MODE, P_MONO);
-        obs_data_set_default_int(settings, P_CHANNEL, 0);
-        obs_data_set_default_int(settings, P_CHANNEL_SPACING, 0);
         obs_data_set_default_int(settings, P_FFT_SIZE, 4096);
         obs_data_set_default_double(settings, P_GRAVITY, 0.65);
         obs_data_set_default_int(settings, P_CUTOFF_LOW, 30);
@@ -214,9 +211,6 @@ namespace callbacks {
             set_prop_visible(props, P_ROLLOFF_RATE, notmeter && !waveform);
             set_prop_visible(props, P_CUTOFF_LOW, notmeter && !waveform);
             set_prop_visible(props, P_CUTOFF_HIGH, notmeter && !waveform);
-            set_prop_visible(props, P_CHANNEL_MODE, notmeter);
-            set_prop_visible(props, P_CHANNEL, notmeter && p_equ(obs_data_get_string(settings, P_CHANNEL_MODE), P_SINGLE));
-            set_prop_visible(props, P_CHANNEL_SPACING, notmeter && p_equ(obs_data_get_string(settings, P_CHANNEL_MODE), P_STEREO));
             set_prop_visible(props, P_LOG_SCALE, notmeter && !waveform);
             set_prop_visible(props, P_WIDTH, notmeter);
             set_prop_visible(props, P_FFT_SIZE, notmeter && !waveform);
@@ -238,26 +232,6 @@ namespace callbacks {
         obs_properties_add_bool(props, P_RMS_MODE, T(P_RMS_MODE));
         auto meterbuf = obs_properties_add_int(props, P_METER_BUF, T(P_METER_BUF), 10, 600000, 10);
         obs_property_int_set_suffix(meterbuf, " ms");
-
-        // channels
-        auto chanlst = obs_properties_add_list(props, P_CHANNEL_MODE, T(P_CHANNEL_MODE), OBS_COMBO_TYPE_LIST, OBS_COMBO_FORMAT_STRING);
-        obs_property_list_add_string(chanlst, T(P_MONO), P_MONO);
-        obs_property_list_add_string(chanlst, T(P_STEREO), P_STEREO);
-        obs_property_list_add_string(chanlst, T(P_SINGLE), P_SINGLE);
-        obs_property_set_long_description(chanlst, T(P_CHAN_DESC));
-
-        obs_properties_add_int(props, P_CHANNEL, T(P_CHANNEL), 0, MAX_AUDIO_CHANNELS - 1, 1);
-
-        // channel spacing
-        obs_properties_add_int(props, P_CHANNEL_SPACING, T(P_CHANNEL_SPACING), 0, 2160, 1);
-        obs_property_set_modified_callback(chanlst, [](obs_properties_t *props, [[maybe_unused]] obs_property_t *property, obs_data_t *settings) -> bool {
-            auto vis = obs_property_visible(obs_properties_get(props, P_CHANNEL_MODE));
-            auto enable_spacing = p_equ(obs_data_get_string(settings, P_CHANNEL_MODE), P_STEREO) && vis;
-            auto enable_channel = p_equ(obs_data_get_string(settings, P_CHANNEL_MODE), P_SINGLE) && vis;
-            set_prop_visible(props, P_CHANNEL_SPACING, enable_spacing);
-            set_prop_visible(props, P_CHANNEL, enable_channel);
-            return true;
-            });
 
         // fft size
         auto fftsz = obs_properties_add_int_slider(props, P_FFT_SIZE, T(P_FFT_SIZE), 128, 8192, 64);
@@ -328,10 +302,6 @@ void WAVSource::get_settings(obs_data_t *settings)
     auto src_name = obs_data_get_string(settings, P_AUDIO_SRC);
     m_width = (unsigned int)obs_data_get_int(settings, P_WIDTH);
     m_height = (unsigned int)obs_data_get_int(settings, P_HEIGHT);
-    auto channel_mode = obs_data_get_string(settings, P_CHANNEL_MODE);
-    m_stereo = p_equ(channel_mode, P_STEREO);
-    m_channel_base = (int)obs_data_get_int(settings, P_CHANNEL);
-    m_channel_spacing = (int)obs_data_get_int(settings, P_CHANNEL_SPACING);
     m_fft_size = (size_t)obs_data_get_int(settings, P_FFT_SIZE);
     m_gravity = (float)obs_data_get_double(settings, P_GRAVITY);
     m_cutoff_low = (int)obs_data_get_int(settings, P_CUTOFF_LOW);
@@ -373,9 +343,6 @@ void WAVSource::get_settings(obs_data_t *settings)
         m_ceiling = 0;
         m_floor = -120;
     }
-
-    if(!m_stereo || (((int)m_height - m_channel_spacing) < 1))
-        m_channel_spacing = 0;
 
     if(src_name != nullptr)
         m_audio_source_name = src_name;
@@ -642,11 +609,9 @@ void WAVSource::create_vbuf() {
     const auto step_stride = m_step_width + m_step_gap;
     const auto center = (float)m_height / 2;
     const auto bottom = (float)m_height;
-    const auto cpos = m_stereo ? center : bottom;
-    const auto channel_offset = m_channel_spacing * 0.5f;
 
-    auto max_steps = (size_t)((cpos - channel_offset) / step_stride);
-    if(((int)cpos - (int)(max_steps * step_stride) - (int)channel_offset) > m_step_width)
+    auto max_steps = (size_t)(bottom / step_stride);
+    if(((int)bottom - (int)(max_steps * step_stride)) > m_step_width)
         ++max_steps;
 
     size_t num_verts = (size_t)(m_num_bars * 6);
@@ -722,15 +687,12 @@ void WAVSource::update(obs_data_t *settings)
     m_capture_channels = std::min(max_channels, 2u);
     if(m_capture_channels == 0)
         LogWarn << "Unknown channel config: " << (unsigned int)m_audio_info.speakers;
-    
-    m_channel_base = 0;
 
     // meter mode
     if(m_meter_mode)
     {
         // turn off stuff we don't need in this mode
         m_slope = 0.0f;
-        m_stereo = false;
         m_normalize_volume = false;
 
         // repurpose m_fft_size for meter buffer size
@@ -762,7 +724,7 @@ void WAVSource::update(obs_data_t *settings)
 
     // initialize buffers
     auto spectrum_mode = !m_meter_mode;
-    m_output_channels = ((m_capture_channels > 1) || m_stereo) ? 2u : 1u;
+    m_output_channels = (m_capture_channels > 1) ? 2u : 1u;
     for(auto i = 0u; i < m_output_channels; ++i)
     {
         auto count = spectrum_mode ? m_fft_size / 2 : m_fft_size;
@@ -882,24 +844,20 @@ void WAVSource::render([[maybe_unused]] gs_effect_t *effect)
     const auto center = (float)m_height / 2;
     const auto bottom = (float)m_height;
     const auto dbrange = m_ceiling - m_floor;
-    const auto cpos = m_stereo ? center : bottom;
-    const auto channel_offset = m_channel_spacing * 0.5f;
     auto border_top = 0.0f;
-    auto border_bottom = cpos;
-    if (m_channel_spacing > 0)
-        border_bottom -= channel_offset;
+    auto border_bottom = bottom;
     if (m_min_bar_height > 0)
         border_bottom -= m_min_bar_height;
-    border_bottom = std::clamp(border_bottom, border_top, cpos);
+    border_bottom = std::clamp(border_bottom, border_top, bottom);
 
-    auto max_steps = (size_t)((cpos - channel_offset) / step_stride);
-    if (((int)cpos - (int)(max_steps * step_stride) - (int)channel_offset) > m_step_width)
+    auto max_steps = (size_t)(bottom / step_stride);
+    if ((int)bottom - (int)(max_steps * step_stride) > m_step_width)
         ++max_steps;
 
     // interpolation
-    auto miny = cpos;
+    auto miny = bottom;
     auto minpos = 0u;
-    for (auto channel = 0u; channel < (m_stereo ? 2u : 1u); ++channel)
+    for (auto channel = 0u; channel < 1u; ++channel)
     {
         if (m_meter_mode)
         {
@@ -930,7 +888,7 @@ void WAVSource::render([[maybe_unused]] gs_effect_t *effect)
         }
     }
 
-    set_shader_vars(cpos, miny, (float)minpos, channel_offset, border_top, border_bottom);
+    set_shader_vars();
 
     gs_technique_begin(tech);
     gs_technique_begin_pass(tech, 0);
@@ -939,7 +897,7 @@ void WAVSource::render([[maybe_unused]] gs_effect_t *effect)
 
     auto vbdata = gs_vertexbuffer_get_data(m_vbuf);
 
-    for (auto channel = 0u; channel < (m_stereo ? 2u : 1u); ++channel)
+    for (auto channel = 0u; channel < 1u; ++channel)
     {
         auto vertpos = 0u;
 
@@ -949,19 +907,12 @@ void WAVSource::render([[maybe_unused]] gs_effect_t *effect)
 
             auto x1 = (float)(i * bar_stride);
             auto x2 = x1 + m_bar_width;
-            auto offset = channel_offset;
-            if (channel)
-            {
-                val = bottom - val;
-                offset = -offset;
-            }
-            auto bot = (m_channel_spacing > 0) ? (cpos - offset) : cpos;
             vec3_set(&vbdata->points[vertpos], x1, val, 0);
             vec3_set(&vbdata->points[vertpos + 1], x2, val, 0);
-            vec3_set(&vbdata->points[vertpos + 2], x1, bot, 0);
+            vec3_set(&vbdata->points[vertpos + 2], x1, bottom, 0);
             vec3_set(&vbdata->points[vertpos + 3], x2, val, 0);
-            vec3_set(&vbdata->points[vertpos + 4], x1, bot, 0);
-            vec3_set(&vbdata->points[vertpos + 5], x2, bot, 0);
+            vec3_set(&vbdata->points[vertpos + 4], x1, bottom, 0);
+            vec3_set(&vbdata->points[vertpos + 5], x2, bottom, 0);
             vertpos += 6;
         }
 
@@ -981,7 +932,7 @@ gs_technique_t *WAVSource::get_shader_tech()
     return gs_effect_get_technique(m_shader, "Solid");
 }
 
-void WAVSource::set_shader_vars(float cpos, float miny, float minpos, float channel_offset, float border_top, float border_bottom)
+void WAVSource::set_shader_vars()
 {
     auto color_base = gs_effect_get_param_by_name(m_shader, "color_base");
     gs_effect_set_vec4(color_base, &m_color_base);
@@ -1078,7 +1029,7 @@ void WAVSource::capture_audio([[maybe_unused]] obs_source_t *source, const audio
                 float val = 0.0f;
                 for(auto channel = 0u; channel < m_capture_channels; ++channel)
                 {
-                    auto buf = data[m_channel_base + channel];
+                    auto buf = data[channel];
                     if(buf != nullptr)
                         val = std::max(std::abs(buf[i]), val);
                 }
@@ -1095,19 +1046,17 @@ void WAVSource::capture_audio([[maybe_unused]] obs_source_t *source, const audio
     }
 
     auto sz = size_t(audio->frames * sizeof(float));
-    for(auto i = m_channel_base; i < (m_channel_base + (int)m_capture_channels); ++i)
+    for(auto i = 0; i < (int)m_capture_channels; ++i)
     {
-        auto j = i - m_channel_base;
-        assert((j == 0) || (j == 1));
-        if((muted && !m_ignore_mute) || (audio->data[i] == nullptr))
-            circlebuf_push_back_zero(&m_capturebufs[j], sz);
+        if(muted || (audio->data[i] == nullptr))
+            circlebuf_push_back_zero(&m_capturebufs[i], sz);
         else
-            circlebuf_push_back(&m_capturebufs[j], audio->data[i], sz);
+            circlebuf_push_back(&m_capturebufs[i], audio->data[i], sz);
 
         const size_t max_size = (dtsamples * sizeof(float)) + bufsz;
-        auto total = m_capturebufs[j].size;
+        auto total = m_capturebufs[i].size;
         if(total > max_size)
-            circlebuf_pop_front(&m_capturebufs[j], nullptr, total - max_size);
+            circlebuf_pop_front(&m_capturebufs[i], nullptr, total - max_size);
     }
 }
 

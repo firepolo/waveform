@@ -41,15 +41,6 @@ static inline bool p_equ(const char *s1, const char *s2) { return std::strcmp(s1
 
 #define P_FFT_SIZE          "fft_size"
 
-#define P_CHANNEL_MODE      "channel_mode"
-#define P_MONO              "mono"
-#define P_STEREO            "stereo"
-#define P_SINGLE            "single"
-
-#define P_CHANNEL           "channel"
-
-#define P_CHANNEL_SPACING   "channel_spacing"
-
 #define P_CUTOFF_LOW        "cutoff_low"
 #define P_CUTOFF_HIGH       "cutoff_high"
 #define P_FLOOR             "floor"
