@@ -144,9 +144,6 @@ void WAVSourceAVX2::tick_spectrum([[maybe_unused]] float seconds)
 
             // time domain smoothing
             auto oldval = _mm256_load_ps(&m_tsmooth_buf[channel][i]);
-            // take new values immediately if larger
-            if(m_fast_peaks)
-                oldval = _mm256_max_ps(mag, oldval);
 
             // (gravity * oldval) + ((1 - gravity) * newval)
             mag = _mm256_fmadd_ps(g, oldval, _mm256_mul_ps(g2, mag));

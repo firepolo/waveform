@@ -138,9 +138,7 @@ namespace callbacks {
         obs_data_set_default_bool(settings, P_ENABLE_LARGE_FFT, false);
         obs_data_set_default_string(settings, P_WINDOW, P_HANN);
         obs_data_set_default_int(settings, P_SINE_EXPONENT, 2);
-        obs_data_set_default_string(settings, P_TSMOOTHING, P_EXPAVG);
         obs_data_set_default_double(settings, P_GRAVITY, 0.65);
-        obs_data_set_default_bool(settings, P_FAST_PEAKS, false);
         obs_data_set_default_int(settings, P_CUTOFF_LOW, 30);
         obs_data_set_default_int(settings, P_CUTOFF_HIGH, 17500);
         obs_data_set_default_int(settings, P_FLOOR, -65);
@@ -248,9 +246,6 @@ namespace callbacks {
             set_prop_visible(props, P_CHANNEL_SPACING, notmeter && p_equ(obs_data_get_string(settings, P_CHANNEL_MODE), P_STEREO));
             set_prop_visible(props, P_WINDOW, notmeter && !waveform);
             set_prop_visible(props, P_SINE_EXPONENT, notmeter && !waveform && p_equ(obs_data_get_string(settings, P_WINDOW), P_POWER_OF_SINE));
-            set_prop_visible(props, P_TSMOOTHING, !waveform);
-            set_prop_visible(props, P_GRAVITY, !waveform && !p_equ(obs_data_get_string(settings, P_TSMOOTHING), P_NONE));
-            set_prop_visible(props, P_FAST_PEAKS, !waveform && !p_equ(obs_data_get_string(settings, P_TSMOOTHING), P_NONE));
             set_prop_visible(props, P_RADIAL, notmeter);
             set_prop_visible(props, P_DEADZONE, notmeter && obs_data_get_bool(settings, P_RADIAL));
             set_prop_visible(props, P_RADIAL_ARC, notmeter && obs_data_get_bool(settings, P_RADIAL));
@@ -365,21 +360,8 @@ namespace callbacks {
             });
 
         // smoothing
-        auto tsmoothlist = obs_properties_add_list(props, P_TSMOOTHING, T(P_TSMOOTHING), OBS_COMBO_TYPE_LIST, OBS_COMBO_FORMAT_STRING);
-        obs_property_list_add_string(tsmoothlist, T(P_NONE), P_NONE);
-        obs_property_list_add_string(tsmoothlist, T(P_EXPAVG), P_EXPAVG);
-        obs_property_list_add_string(tsmoothlist, T(P_TVEXPAVG), P_TVEXPAVG);
         auto grav = obs_properties_add_float_slider(props, P_GRAVITY, T(P_GRAVITY), 0.0, 1.0, 0.01);
-        auto peaks = obs_properties_add_bool(props, P_FAST_PEAKS, T(P_FAST_PEAKS));
-        obs_property_set_long_description(tsmoothlist, T(P_TEMPORAL_DESC));
         obs_property_set_long_description(grav, T(P_GRAVITY_DESC));
-        obs_property_set_long_description(peaks, T(P_FAST_PEAKS_DESC));
-        obs_property_set_modified_callback(tsmoothlist, [](obs_properties_t *props, [[maybe_unused]] obs_property_t *property, obs_data_t *settings) -> bool {
-            auto enable = !p_equ(obs_data_get_string(settings, P_TSMOOTHING), P_NONE) && obs_property_visible(obs_properties_get(props, P_TSMOOTHING));
-            set_prop_visible(props, P_GRAVITY, enable);
-            set_prop_visible(props, P_FAST_PEAKS, enable);
-            return true;
-            });
 
         // display
         auto low_cut = obs_properties_add_int_slider(props, P_CUTOFF_LOW, T(P_CUTOFF_LOW), 0, 24000, 1);
@@ -452,9 +434,7 @@ void WAVSource::get_settings(obs_data_t *settings)
     m_auto_fft_size = obs_data_get_bool(settings, P_AUTO_FFT_SIZE);
     auto wnd = obs_data_get_string(settings, P_WINDOW);
     m_sine_exponent = (int)obs_data_get_int(settings, P_SINE_EXPONENT);
-    auto tsmoothing = obs_data_get_string(settings, P_TSMOOTHING);
     m_gravity = (float)obs_data_get_double(settings, P_GRAVITY);
-    m_fast_peaks = obs_data_get_bool(settings, P_FAST_PEAKS);
     m_cutoff_low = (int)obs_data_get_int(settings, P_CUTOFF_LOW);
     m_cutoff_high = (int)obs_data_get_int(settings, P_CUTOFF_HIGH);
     m_floor = (int)obs_data_get_int(settings, P_FLOOR);

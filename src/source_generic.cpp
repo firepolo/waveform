@@ -122,8 +122,6 @@ void WAVSourceGeneric::tick_spectrum([[maybe_unused]] float seconds)
                 mag *= m_slope_modifiers[i];
 
             auto oldval = m_tsmooth_buf[channel][i];
-            if(m_fast_peaks)
-                oldval = std::max(mag, oldval);
 
             mag = (g * oldval) + (g2 * mag);
             m_tsmooth_buf[channel][i] = mag;
@@ -248,7 +246,7 @@ void WAVSourceGeneric::tick_meter([[maybe_unused]] float seconds)
 
         const auto g = get_gravity(seconds);
         const auto g2 = 1.0f - g;
-        if(!m_fast_peaks || (out <= m_meter_buf[channel]))
+        if(out <= m_meter_buf[channel])
             out = (g * m_meter_buf[channel]) + (g2 * out);
 
         m_meter_buf[channel] = out;

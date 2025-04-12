@@ -83,12 +83,6 @@ static inline bool p_equ(const char *s1, const char *s2) { return std::strcmp(s1
 #define P_ROLLOFF_RATE      "rolloff_rate"
 
 #define P_GRAVITY           "gravity"
-// BEGIN
-#define P_TSMOOTHING        "temporal_smoothing"
-#define P_EXPAVG            "exp_moving_avg"
-#define P_TVEXPAVG          "tv_exp_moving_avg"
-#define P_FAST_PEAKS        "fast_peaks"
-// END
 
 #define P_COLOR_BASE        "color_base"
 
@@ -116,11 +110,8 @@ static inline bool p_equ(const char *s1, const char *s2) { return std::strcmp(s1
 #define P_AUTO_FFT_DESC     "auto_fft_desc"
 #define P_FFT_DESC          "fft_desc"
 #define P_WINDOW_DESC       "window_desc"
-#define P_TEMPORAL_DESC     "temporal_desc"
 #define P_GRAVITY_DESC      "gravity_desc"
-#define P_FAST_PEAKS_DESC   "fast_peaks_desc"
 #define P_INTERP_DESC       "interp_desc"
-#define P_FILTER_DESC       "filter_desc"
 #define P_SLOPE_DESC        "slope_desc"
 #define P_DEADZONE_DESC     "deadzone_desc"
 #define P_CAPS_DESC         "caps_desc"

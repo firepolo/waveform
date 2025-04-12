@@ -141,8 +141,6 @@ void WAVSourceAVX::tick_spectrum([[maybe_unused]] float seconds)
                 mag = _mm256_mul_ps(mag, _mm256_load_ps(&m_slope_modifiers[i]));
 
             auto oldval = _mm256_load_ps(&m_tsmooth_buf[channel][i]);
-            if(m_fast_peaks)
-                oldval = _mm256_max_ps(mag, oldval);
 
             mag = _mm256_fmadd_ps(g, oldval, _mm256_mul_ps(g2, mag));
             _mm256_store_ps(&m_tsmooth_buf[channel][i], mag);
@@ -281,7 +279,7 @@ void WAVSourceAVX::tick_meter([[maybe_unused]] float seconds)
 
         const auto g = get_gravity(seconds);
         const auto g2 = 1.0f - g;
-        if(!m_fast_peaks || (out <= m_meter_buf[channel]))
+        if (out <= m_meter_buf[channel])
             out = (g * m_meter_buf[channel]) + (g2 * out);
 
         m_meter_buf[channel] = out;

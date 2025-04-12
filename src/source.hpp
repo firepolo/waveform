@@ -146,7 +146,6 @@ protected:
     float m_grad_ratio = 1.0f;
     int m_range_middle = -20;
     int m_range_crest = -9;
-    bool m_fast_peaks = false;
     vec4 m_color_base{ {{1.0, 1.0, 1.0, 1.0}} };
     float m_slope = 0.0f;
     int m_bar_width = 0;
