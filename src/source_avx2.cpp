@@ -31,6 +31,8 @@ void WAVSourceAVX2::tick_spectrum([[maybe_unused]] float seconds)
 
     const auto dtcapture = m_tick_ts - m_capture_ts;
 
+    auto& decibels = m_decibels[0];
+
     // reset and stop processing when source is not being displayed
     // or we haven't received audio data for more than the timeout value
     if(!m_show || (dtcapture > CAPTURE_TIMEOUT))
@@ -40,9 +42,8 @@ void WAVSourceAVX2::tick_spectrum([[maybe_unused]] float seconds)
         for(auto channel = 0u; channel < m_capture_channels; ++channel)
             if(m_tsmooth_buf[channel] != nullptr)
                 memset(m_tsmooth_buf[channel].get(), 0, outsz * sizeof(float));
-        for(auto channel = 0; channel < 1; ++channel)
-            for(size_t i = 0; i < outsz; ++i)
-                m_decibels[channel][i] = DB_MIN;
+        for(size_t i = 0; i < outsz; ++i)
+            decibels[i] = DB_MIN;
         m_last_silent = true;
         return;
     }
@@ -84,7 +85,7 @@ void WAVSourceAVX2::tick_spectrum([[maybe_unused]] float seconds)
             auto floor = _mm256_set1_ps((float)(m_floor - 10));
             for(size_t i = 0; i < outsz; i += step)
             {
-                auto mask = _mm256_cmp_ps(floor, _mm256_load_ps(&m_decibels[0u][i]), _CMP_GT_OQ);
+                auto mask = _mm256_cmp_ps(floor, _mm256_load_ps(&decibels[i]), _CMP_GT_OQ);
                 if(_mm256_movemask_ps(mask) != 0xff)
                 {
                     outsilent = false;
@@ -152,42 +153,39 @@ void WAVSourceAVX2::tick_spectrum([[maybe_unused]] float seconds)
     if(m_last_silent)
         return;
 
+    auto& decibels1 = m_decibels[1];
     if(m_output_channels > m_capture_channels)
-        memcpy(m_decibels[1].get(), m_decibels[0].get(), outsz * sizeof(float));
+        memcpy(decibels1.get(), decibels.get(), outsz * sizeof(float));
 
     // dBFS conversion
     // 20 * log(2 * magnitude / window)
     if(m_capture_channels > 1)
     {
         for(size_t i = 0; i < outsz; ++i)
-            m_decibels[0][i] = dbfs((m_decibels[0][i] + m_decibels[1][i]) * 0.5f);
+            decibels[i] = dbfs((decibels[i] + decibels1[i]) * 0.5f);
     }
     else
     {
         for(size_t i = 0; i < outsz; ++i)
-            m_decibels[0][i] = dbfs(m_decibels[0][i]);
+            decibels[i] = dbfs(decibels[i]);
     }
 
     // volume normalization
     if(m_normalize_volume)
     {
         const auto volume_compensation = _mm256_set1_ps(std::min(m_volume_target - dbfs(m_input_rms), m_max_gain));
-        for(auto channel = 0; channel < 1; ++channel)
-            for(size_t i = 0; i < outsz; i += step)
-                _mm256_store_ps(&m_decibels[channel][i], _mm256_add_ps(volume_compensation, _mm256_load_ps(&m_decibels[channel][i])));
+        for(size_t i = 0; i < outsz; i += step)
+            _mm256_store_ps(&decibels[i], _mm256_add_ps(volume_compensation, _mm256_load_ps(&decibels[i])));
     }
 
     // roll-off
     if((m_rolloff_q > 0.0f) && (m_rolloff_rate > 0.0f))
     {
         const auto dbmin = _mm256_set1_ps(DB_MIN);
-        for(auto channel = 0; channel < 1; ++channel)
+        for(size_t i = 0; i < outsz; i += step)
         {
-            for(size_t i = 0; i < outsz; i += step)
-            {
-                auto val = _mm256_sub_ps(_mm256_load_ps(&m_decibels[channel][i]), _mm256_load_ps(&m_rolloff_modifiers[i]));
-                _mm256_store_ps(&m_decibels[channel][i], _mm256_max_ps(val, dbmin));
-            }
+            auto val = _mm256_sub_ps(_mm256_load_ps(&decibels[i]), _mm256_load_ps(&m_rolloff_modifiers[i]));
+            _mm256_store_ps(&decibels[i], _mm256_max_ps(val, dbmin));
         }
     }
 }

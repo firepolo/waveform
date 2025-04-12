@@ -36,6 +36,8 @@ void WAVSourceAVX::tick_spectrum([[maybe_unused]] float seconds)
 
     const auto dtcapture = m_tick_ts - m_capture_ts;
 
+    auto& decibels = m_decibels[0];
+
     if(!m_show || (dtcapture > CAPTURE_TIMEOUT))
     {
         if(m_last_silent)
@@ -43,9 +45,8 @@ void WAVSourceAVX::tick_spectrum([[maybe_unused]] float seconds)
         for(auto channel = 0u; channel < m_capture_channels; ++channel)
             if(m_tsmooth_buf[channel] != nullptr)
                 memset(m_tsmooth_buf[channel].get(), 0, outsz * sizeof(float));
-        for(auto channel = 0; channel < 1; ++channel)
-            for(size_t i = 0; i < outsz; ++i)
-                m_decibels[channel][i] = DB_MIN;
+        for(size_t i = 0; i < outsz; ++i)
+            decibels[i] = DB_MIN;
         m_last_silent = true;
         return;
     }
@@ -148,141 +149,38 @@ void WAVSourceAVX::tick_spectrum([[maybe_unused]] float seconds)
     if(m_last_silent)
         return;
 
+    auto& decibels1 = m_decibels[1];
     if(m_output_channels > m_capture_channels)
-        memcpy(m_decibels[1].get(), m_decibels[0].get(), outsz * sizeof(float));
+        memcpy(decibels1.get(), decibels.get(), outsz * sizeof(float));
 
     if(m_capture_channels > 1)
     {
+        auto& decibels1 = m_decibels[1];
         for(size_t i = 0; i < outsz; ++i)
-            m_decibels[0][i] = dbfs((m_decibels[0][i] + m_decibels[1][i]) * 0.5f);
+            decibels[i] = dbfs((decibels[i] + decibels1[i]) * 0.5f);
     }
     else
     {
         for(size_t i = 0; i < outsz; ++i)
-            m_decibels[0][i] = dbfs(m_decibels[0][i]);
+            decibels[i] = dbfs(decibels[i]);
     }
 
     if(m_normalize_volume)
     {
         const auto volume_compensation = _mm256_set1_ps(std::min(m_volume_target - dbfs(m_input_rms), m_max_gain));
-        for(auto channel = 0; channel < 1; ++channel)
-            for(size_t i = 0; i < outsz; i += step)
-                _mm256_store_ps(&m_decibels[channel][i], _mm256_add_ps(volume_compensation, _mm256_load_ps(&m_decibels[channel][i])));
+        for(size_t i = 0; i < outsz; i += step)
+            _mm256_store_ps(&decibels[i], _mm256_add_ps(volume_compensation, _mm256_load_ps(&decibels[i])));
     }
 
     if((m_rolloff_q > 0.0f) && (m_rolloff_rate > 0.0f))
     {
         const auto dbmin = _mm256_set1_ps(DB_MIN);
-        for(auto channel = 0; channel < 1; ++channel)
+        for(size_t i = 0; i < outsz; i += step)
         {
-            for(size_t i = 0; i < outsz; i += step)
-            {
-                auto val = _mm256_sub_ps(_mm256_load_ps(&m_decibels[channel][i]), _mm256_load_ps(&m_rolloff_modifiers[i]));
-                _mm256_store_ps(&m_decibels[channel][i], _mm256_max_ps(val, dbmin));
-            }
+            auto val = _mm256_sub_ps(_mm256_load_ps(&decibels[i]), _mm256_load_ps(&m_rolloff_modifiers[i]));
+            _mm256_store_ps(&decibels[i], _mm256_max_ps(val, dbmin));
         }
     }
-}
-
-void WAVSourceAVX::tick_meter([[maybe_unused]] float seconds)
-{
-    // handle audio dropouts
-    const auto dtcapture = m_tick_ts - m_capture_ts;
-    if(dtcapture > CAPTURE_TIMEOUT)
-    {
-        if(m_last_silent)
-            return;
-        constexpr auto step = sizeof(__m256) / sizeof(float);
-        const auto zero = _mm256_setzero_ps();
-        for(auto channel = 0u; channel < m_capture_channels; ++channel)
-            for(size_t i = 0u; i < m_fft_size; i += step)
-                _mm256_store_ps(&m_decibels[channel][i], zero);
-
-        for(auto& i : m_meter_buf)
-            i = 0.0f;
-        for(auto& i : m_meter_val)
-            i = DB_MIN;
-        m_last_silent = true;
-        return;
-    }
-
-    const int64_t dtaudio = get_audio_sync(m_tick_ts);
-    const size_t dtsize = (dtaudio > 0) ? size_t(ns_to_audio_frames(m_audio_info.samples_per_sec, (uint64_t)dtaudio)) * sizeof(float) : 0;
-
-    // repurpose m_decibels as circular buffer for sample data
-    for(auto channel = 0u; channel < m_capture_channels; ++channel)
-    {
-        while(m_capturebufs[channel].size > dtsize)
-        {
-            auto consume = m_capturebufs[channel].size - dtsize;
-            auto max = (m_fft_size - m_meter_pos[channel]) * sizeof(float);
-            if(consume >= max)
-            {
-                circlebuf_pop_front(&m_capturebufs[channel], &m_decibels[channel][m_meter_pos[channel]], max);
-                m_meter_pos[channel] = 0;
-            }
-            else
-            {
-                circlebuf_pop_front(&m_capturebufs[channel], &m_decibels[channel][m_meter_pos[channel]], consume);
-                m_meter_pos[channel] += consume / sizeof(float);
-            }
-        }
-    }
-
-    if(!m_show)
-        return;
-
-    for(auto channel = 0u; channel < m_capture_channels; ++channel)
-    {
-        float out = 0.0f;
-        constexpr auto step = (sizeof(__m256) / sizeof(float)) * 2; // buffer size is 64-byte multiple
-        constexpr auto halfstep = step / 2;
-        if(m_meter_rms)
-        {
-            auto sum1 = _mm256_setzero_ps(); // split sum into 2 'lanes' for better pipelining
-            auto sum2 = _mm256_setzero_ps();
-            for(size_t i = 0; i < m_fft_size; i += step)
-            {
-                auto chunk1 = _mm256_load_ps(&m_decibels[channel][i]);
-                sum1 = _mm256_fmadd_ps(chunk1, chunk1, sum1);
-                auto chunk2 = _mm256_load_ps(&m_decibels[channel][i + halfstep]); // unroll loop to cache line size
-                sum2 = _mm256_fmadd_ps(chunk2, chunk2, sum2);
-            }
-
-            out = std::sqrt(horizontal_sum(_mm256_add_ps(sum1, sum2)) / m_fft_size);
-        }
-        else
-        {
-            const auto signbit = _mm256_set1_ps(-0.0f);
-            auto max1 = _mm256_setzero_ps(); // split max into 2 'lanes' for better pipelining
-            auto max2 = _mm256_setzero_ps();
-            for(size_t i = 0; i < m_fft_size; i += step)
-            {
-                auto chunk1 = _mm256_andnot_ps(signbit, _mm256_load_ps(&m_decibels[channel][i])); // absolute value
-                max1 = _mm256_max_ps(max1, chunk1);
-                auto chunk2 = _mm256_andnot_ps(signbit, _mm256_load_ps(&m_decibels[channel][i + halfstep])); // unroll loop to cache line size
-                max2 = _mm256_max_ps(max2, chunk2);
-            }
-
-            out = horizontal_max(_mm256_max_ps(max1, max2));
-        }
-
-        const auto g = get_gravity(seconds);
-        const auto g2 = 1.0f - g;
-        if (out <= m_meter_buf[channel])
-            out = (g * m_meter_buf[channel]) + (g2 * out);
-
-        m_meter_buf[channel] = out;
-        m_meter_val[channel] = dbfs(out);
-    }
-
-    // hide on silent
-    auto silent_channels = 0u;
-    for(auto channel = 0u; channel < m_capture_channels; ++channel)
-        if(m_meter_val[channel] < (m_floor - 10))
-            ++silent_channels;
-
-    m_last_silent = (silent_channels >= m_capture_channels);
 }
 
 void WAVSourceAVX::update_input_rms()

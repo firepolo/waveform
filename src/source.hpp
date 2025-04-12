@@ -178,8 +178,6 @@ protected:
     virtual void update_input_rms() = 0;    // update RMS window
 
     virtual void tick_spectrum(float) = 0;  // process audio data in frequency spectrum mode
-    virtual void tick_meter(float) = 0;     // process audio data in meter mode
-    virtual void tick_waveform(float) = 0;  // process audio data in waveform mode
 
     int64_t get_audio_sync(uint64_t ts)     // get delta between end of available audio and given time in nanoseconds
     {
@@ -247,8 +245,6 @@ class WAVSourceGeneric : public WAVSource
 {
 protected:
     void tick_spectrum(float seconds) override;
-    void tick_meter(float seconds) override;
-    void tick_waveform(float seconds) override;
 
     void update_input_rms() override;
 
@@ -263,7 +259,6 @@ class WAVSourceAVX : public WAVSourceGeneric
 {
 protected:
     void tick_spectrum(float seconds) override;
-    void tick_meter(float seconds) override;
 
     void update_input_rms() override;
 
