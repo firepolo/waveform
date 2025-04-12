@@ -202,10 +202,6 @@ protected:
     // roll-off
     AVXBufR m_rolloff_modifiers;
 
-    // gaussian filter
-    Kernel<float> m_kernel;
-    float m_filter_radius = 0.0f;
-
     // lanczos filter
     Kernel<float> m_interp_kernel;
 

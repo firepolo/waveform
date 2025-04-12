@@ -518,7 +518,6 @@ void WAVSource::get_settings(obs_data_t *settings)
     m_fast_peaks = obs_data_get_bool(settings, P_FAST_PEAKS);
     auto interp = obs_data_get_string(settings, P_INTERP_MODE);
     auto filtermode = obs_data_get_string(settings, P_FILTER_MODE);
-    m_filter_radius = (float)obs_data_get_double(settings, P_FILTER_RADIUS);
     m_cutoff_low = (int)obs_data_get_int(settings, P_CUTOFF_LOW);
     m_cutoff_high = (int)obs_data_get_int(settings, P_CUTOFF_HIGH);
     m_floor = (int)obs_data_get_int(settings, P_FLOOR);
@@ -744,7 +743,6 @@ void WAVSource::free_bufs()
     m_rms_temp_buf.reset();
     m_rolloff_modifiers.reset();
 
-    m_kernel = {};
     m_interp_kernel = {};
 
     if(m_fft_plan != nullptr)
@@ -1128,10 +1126,6 @@ void WAVSource::update(obs_data_t *settings)
             i.resize(m_num_bars);
     }
 
-    // filter
-    if(m_filter_mode == FilterMode::GAUSS)
-        m_kernel = make_gauss_kernel(m_filter_radius);
-
     // slope
     if(m_slope > 0.0f)
     {
@@ -1240,18 +1234,6 @@ void WAVSource::render_bars([[maybe_unused]] gs_effect_t *effect)
                         sum += m_decibels[channel][(size_t)m_interp_indices[i] + j];
                     m_interp_bufs[channel][i] = sum / (float)count;
                 }
-            }
-
-            if(m_filter_mode != FilterMode::NONE)
-            {
-#ifdef ENABLE_X86_SIMD
-                if(HAVE_AVX)
-                    std::swap(m_interp_bufs[channel], apply_filter_fma3(m_interp_bufs[channel], m_kernel, m_interp_bufs[2]));
-                else
-                    std::swap(m_interp_bufs[channel], apply_filter(m_interp_bufs[channel], m_kernel, m_interp_bufs[2]));
-#else
-                std::swap(m_interp_bufs[channel], apply_filter(m_interp_bufs[channel], m_kernel, m_interp_bufs[2]));
-#endif // ENABLE_X86_SIMD
             }
         }
 
