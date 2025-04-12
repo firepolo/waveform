@@ -503,13 +503,8 @@ void WAVSource::get_settings(obs_data_t *settings)
     auto src_name = obs_data_get_string(settings, P_AUDIO_SRC);
     m_width = (unsigned int)obs_data_get_int(settings, P_WIDTH);
     m_height = (unsigned int)obs_data_get_int(settings, P_HEIGHT);
-    m_log_scale = obs_data_get_bool(settings, P_LOG_SCALE);
-    m_mirror_freq_axis = obs_data_get_bool(settings, P_MIRROR_FREQ_AXIS);
     m_invert = obs_data_get_bool(settings, P_INVERT);
     auto deadzone = (float)obs_data_get_double(settings, P_DEADZONE) / 100.0f;
-    m_radial_arc = (float)obs_data_get_double(settings, P_RADIAL_ARC) / 360.0f;
-    m_radial_rotation = ((float)obs_data_get_double(settings, P_RADIAL_ROTATION) / 360.0f) * (std::numbers::pi_v<float> * 2);
-    m_rounded_caps = obs_data_get_bool(settings, P_CAPS);
     auto channel_mode = obs_data_get_string(settings, P_CHANNEL_MODE);
     m_stereo = p_equ(channel_mode, P_STEREO);
     m_channel_base = (int)obs_data_get_int(settings, P_CHANNEL);
@@ -797,16 +792,8 @@ void WAVSource::init_interp(unsigned int sz)
     const float highbin = std::clamp((float)m_cutoff_high * m_fft_size / sr, 1.0f, (float)maxbin);
 
     m_interp_indices.resize(sz);
-    if(m_log_scale)
-    {
-        for(auto i = 0u; i < sz; ++i)
-            m_interp_indices[i] = std::clamp(log_interp(lowbin, highbin, (m_mirror_freq_axis ? i * 2.0f : (float)i) / (float)(sz - 1)), lowbin, highbin);
-    }
-    else
-    {
-        for(auto i = 0u; i < sz; ++i)
-            m_interp_indices[i] = std::clamp(lerp(lowbin, highbin, (m_mirror_freq_axis ? i * 2.0f : (float)i) / (float)(sz - 1)), lowbin, highbin);
-    }
+    for(auto i = 0u; i < sz; ++i)
+        m_interp_indices[i] = std::clamp(log_interp(lowbin, highbin, (float)i / (float)(sz - 1)), lowbin, highbin);
 
     // bar bands
     m_band_widths.resize(m_num_bars);
@@ -855,21 +842,6 @@ void WAVSource::init_rolloff()
         auto high_attenuation = (ratio_high > 1.0f) ? (m_rolloff_rate * std::log2(ratio_high)) : 0.0f;
         m_rolloff_modifiers[i] = low_attenuation + high_attenuation;
     }
-}
-
-void WAVSource::init_steps()
-{
-    const auto x1 = 0.0f;
-    const auto x2 = (float)m_bar_width;
-    const auto y1 = 0.0f;
-    const auto y2 = (float)m_step_width;
-
-    vec3_set(&m_step_verts[0], x1, y1, 0);
-    vec3_set(&m_step_verts[1], x2, y1, 0);
-    vec3_set(&m_step_verts[2], x1, y2, 0);
-    vec3_set(&m_step_verts[3], x2, y1, 0);
-    vec3_set(&m_step_verts[4], x1, y2, 0);
-    vec3_set(&m_step_verts[5], x2, y2, 0);
 }
 
 WAVSource::WAVSource(obs_source_t *source)
@@ -931,8 +903,6 @@ void WAVSource::create_vbuf() {
         ++max_steps;
 
     size_t num_verts = (size_t)(m_num_bars * 6);
-    if(m_rounded_caps)
-        num_verts += m_cap_tris * ((m_channel_spacing > 0) ? 12 : 6) * m_num_bars; // 2 caps per bar (middle omitted when 0 spacing)
 
     constexpr auto signbit = (size_t)1 << ((sizeof(num_verts) * 8) - 1);
     assert(num_verts > 0);
@@ -1020,7 +990,6 @@ void WAVSource::update(obs_data_t *settings)
         m_slope = 0.0f;
         m_stereo = false;
         m_normalize_volume = false;
-        m_mirror_freq_axis = false;
 
         // repurpose m_fft_size for meter buffer size
         m_fft_size = size_t(m_audio_info.samples_per_sec * (m_meter_ms / 1000.0)) & -16;
@@ -1173,25 +1142,6 @@ void WAVSource::update(obs_data_t *settings)
             m_slope_modifiers[i] = std::log10(log_interp(10.0f, 10000.0f, ((float)i * m_slope) / maxmod));
     }
 
-    // rounded caps
-    m_cap_verts.clear();
-    if(m_rounded_caps)
-    {
-        // caps are full circles to avoid distortion issues in radial mode
-        m_cap_radius = (float)m_bar_width / 2.0f;
-        m_cap_tris = std::max((int)((2 * pi * m_cap_radius) / 3.0f), 4);
-        if(m_cap_tris & 1) // force even number of triangles
-            m_cap_tris += 1;
-        auto angle = (2 * pi) / (float)m_cap_tris;
-        auto verts = m_cap_tris + 1;
-        m_cap_verts.resize(verts);
-        for(auto j = 0; j < verts; ++j)
-        {
-            auto a = j * angle;
-            vec3_set(&m_cap_verts[j], m_cap_radius * std::cos(a), m_cap_radius * std::sin(a), 0.0f);
-        }
-    }
-
     // roll-off
     if((m_rolloff_q > 0.0f) && (m_rolloff_rate > 0.0f))
         init_rolloff();
@@ -1245,8 +1195,8 @@ void WAVSource::render_bars([[maybe_unused]] gs_effect_t *effect)
     const auto dbrange = m_ceiling - m_floor;
     const auto cpos = m_stereo ? center : bottom;
     const auto channel_offset = m_channel_spacing * 0.5f;
-    auto border_top = (m_rounded_caps) ? m_cap_radius : 0.0f;
-    auto border_bottom = (m_rounded_caps && (!m_stereo || (m_channel_spacing > 0))) ? cpos - m_cap_radius : cpos;
+    auto border_top = 0.0f;
+    auto border_bottom = cpos;
     if(m_channel_spacing > 0)
         border_bottom -= channel_offset;
     if(m_min_bar_height > 0)
@@ -1315,13 +1265,6 @@ void WAVSource::render_bars([[maybe_unused]] gs_effect_t *effect)
             }
             m_interp_bufs[channel][i] = val;
         }
-
-        if(m_mirror_freq_axis)
-        {
-            const auto half = (m_num_bars / 2u);
-            for(auto i = half + 1; i < (unsigned int)m_num_bars; ++i)
-                m_interp_bufs[channel][i] = m_interp_bufs[channel][half - (i - half)];
-        }
     }
 
     set_shader_vars(cpos, miny, (float)minpos, channel_offset, border_top, border_bottom);
@@ -1343,13 +1286,13 @@ void WAVSource::render_bars([[maybe_unused]] gs_effect_t *effect)
 
             auto x1 = (float)(i * bar_stride);
             auto x2 = x1 + m_bar_width;
-            auto offset = (m_rounded_caps ? m_cap_radius : 0.0f) + channel_offset;
+            auto offset = channel_offset;
             if(channel)
             {
                 val = bottom - val;
                 offset = -offset;
             }
-            auto bot = ((m_rounded_caps && !m_stereo) || (m_channel_spacing > 0)) ? (cpos - offset) : cpos;
+            auto bot = (m_channel_spacing > 0) ? (cpos - offset) : cpos;
             vec3_set(&vbdata->points[vertpos], x1, val, 0);
             vec3_set(&vbdata->points[vertpos + 1], x2, val, 0);
             vec3_set(&vbdata->points[vertpos + 2], x1, bot, 0);
@@ -1357,37 +1300,6 @@ void WAVSource::render_bars([[maybe_unused]] gs_effect_t *effect)
             vec3_set(&vbdata->points[vertpos + 4], x1, bot, 0);
             vec3_set(&vbdata->points[vertpos + 5], x2, bot, 0);
             vertpos += 6;
-
-            if(m_rounded_caps)
-            {
-                auto ccx = (float)(i * bar_stride) + m_cap_radius; // cap center x
-                auto half = m_cap_tris / 2; // m_cap_tris always even
-                auto start = channel ? 0 : half;
-                auto stop = start + half;
-                vec3 cvert;
-                vec3_set(&cvert, ccx, val, 0.0f);
-                for(auto j = start; j < stop; ++j)
-                {
-                    vec3_add(&vbdata->points[vertpos], &m_cap_verts[j], &cvert);
-                    vec3_add(&vbdata->points[vertpos + 1], &m_cap_verts[j + 1], &cvert);
-                    vec3_copy(&vbdata->points[vertpos + 2], &cvert);
-                    vertpos += 3;
-                }
-                if(!m_stereo || (m_channel_spacing > 0))
-                {
-                    auto ccy = cpos - offset;
-                    start = channel ? half : 0;
-                    stop = start + half;
-                    vec3_set(&cvert, ccx, ccy, 0.0f);
-                    for(auto j = start; j < stop; ++j)
-                    {
-                        vec3_add(&vbdata->points[vertpos], &m_cap_verts[j], &cvert);
-                        vec3_add(&vbdata->points[vertpos + 1], &m_cap_verts[j + 1], &cvert);
-                        vec3_copy(&vbdata->points[vertpos + 2], &cvert);
-                        vertpos += 3;
-                    }
-                }
-            }
         }
 
         gs_vertexbuffer_flush(m_vbuf);

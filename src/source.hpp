@@ -175,8 +175,6 @@ protected:
     bool m_fast_peaks = false;
     vec4 m_color_base{ {{1.0, 1.0, 1.0, 1.0}} };
     float m_slope = 0.0f;
-    bool m_log_scale = true;
-    bool m_mirror_freq_axis = false;
     int m_bar_width = 0;
     int m_bar_gap = 0;
     int m_step_width = 0;
@@ -184,9 +182,6 @@ protected:
     int m_num_bars = 0;
     bool m_invert = false;
     float m_deadzone = 0.0f; // radial display deadzone
-    float m_radial_arc = 1.0f;
-    float m_radial_rotation = 0.0f;
-    bool m_rounded_caps = false;
     bool m_hide_on_silent = false;
     int m_channel_spacing = 0;
     float m_rolloff_q = 0.0f;
@@ -216,14 +211,6 @@ protected:
 
     // slope
     AVXBufR m_slope_modifiers;
-
-    // rounded caps
-    float m_cap_radius = 0.0f;
-    int m_cap_tris = 4;             // number of triangles each cap is composed of (4 min)
-    std::vector<vec3> m_cap_verts;  // pre-rotated cap vertices (to be translated to final pos)
-
-    // stepped bars
-    vec3 m_step_verts[6]{};         // vertices for one step of a bar (to be translated to final pos)
 
     // render vars
     gs_effect_t *m_shader = nullptr;
@@ -256,7 +243,6 @@ protected:
 
     void init_interp(unsigned int sz);
     void init_rolloff();
-    void init_steps();
 
     void render_bars(gs_effect_t *effect);
 
