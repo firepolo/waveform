@@ -140,15 +140,12 @@ void WAVSourceAVX::tick_spectrum([[maybe_unused]] float seconds)
             if(slope)
                 mag = _mm256_mul_ps(mag, _mm256_load_ps(&m_slope_modifiers[i]));
 
-            if(m_tsmoothing != TSmoothingMode::NONE)
-            {
-                auto oldval = _mm256_load_ps(&m_tsmooth_buf[channel][i]);
-                if(m_fast_peaks)
-                    oldval = _mm256_max_ps(mag, oldval);
+            auto oldval = _mm256_load_ps(&m_tsmooth_buf[channel][i]);
+            if(m_fast_peaks)
+                oldval = _mm256_max_ps(mag, oldval);
 
-                mag = _mm256_fmadd_ps(g, oldval, _mm256_mul_ps(g2, mag));
-                _mm256_store_ps(&m_tsmooth_buf[channel][i], mag);
-            }
+            mag = _mm256_fmadd_ps(g, oldval, _mm256_mul_ps(g2, mag));
+            _mm256_store_ps(&m_tsmooth_buf[channel][i], mag);
 
             _mm256_store_ps(&m_decibels[channel][i], mag);
         }
@@ -282,13 +279,11 @@ void WAVSourceAVX::tick_meter([[maybe_unused]] float seconds)
             out = horizontal_max(_mm256_max_ps(max1, max2));
         }
 
-        if(m_tsmoothing != TSmoothingMode::NONE)
-        {
-            const auto g = get_gravity(seconds);
-            const auto g2 = 1.0f - g;
-            if(!m_fast_peaks || (out <= m_meter_buf[channel]))
-                out = (g * m_meter_buf[channel]) + (g2 * out);
-        }
+        const auto g = get_gravity(seconds);
+        const auto g2 = 1.0f - g;
+        if(!m_fast_peaks || (out <= m_meter_buf[channel]))
+            out = (g * m_meter_buf[channel]) + (g2 * out);
+
         m_meter_buf[channel] = out;
         m_meter_val[channel] = dbfs(out);
     }

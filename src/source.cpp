@@ -518,13 +518,6 @@ void WAVSource::get_settings(obs_data_t *settings)
     else
         m_window_func = FFTWindow::NONE;
 
-    if(p_equ(tsmoothing, P_EXPAVG))
-        m_tsmoothing = TSmoothingMode::EXPONENTIAL;
-    else if(p_equ(tsmoothing, P_TVEXPAVG))
-        m_tsmoothing = TSmoothingMode::TVEXPONENTIAL;
-    else
-        m_tsmoothing = TSmoothingMode::NONE;
-
     m_meter_mode = false;
 }
 
@@ -919,7 +912,7 @@ void WAVSource::update(obs_data_t *settings)
     {
         auto count = spectrum_mode ? m_fft_size / 2 : m_fft_size;
         m_decibels[i].reset(count);
-        if(spectrum_mode && (m_tsmoothing != TSmoothingMode::NONE))
+        if(spectrum_mode)
         {
             m_tsmooth_buf[i].reset(count);
             std::fill(m_tsmooth_buf[i].get(), m_tsmooth_buf[i].get() + count, 0.0f);

@@ -143,17 +143,14 @@ void WAVSourceAVX2::tick_spectrum([[maybe_unused]] float seconds)
                 mag = _mm256_mul_ps(mag, _mm256_load_ps(&m_slope_modifiers[i]));
 
             // time domain smoothing
-            if(m_tsmoothing != TSmoothingMode::NONE)
-            {
-                auto oldval = _mm256_load_ps(&m_tsmooth_buf[channel][i]);
-                // take new values immediately if larger
-                if(m_fast_peaks)
-                    oldval = _mm256_max_ps(mag, oldval);
+            auto oldval = _mm256_load_ps(&m_tsmooth_buf[channel][i]);
+            // take new values immediately if larger
+            if(m_fast_peaks)
+                oldval = _mm256_max_ps(mag, oldval);
 
-                // (gravity * oldval) + ((1 - gravity) * newval)
-                mag = _mm256_fmadd_ps(g, oldval, _mm256_mul_ps(g2, mag));
-                _mm256_store_ps(&m_tsmooth_buf[channel][i], mag);
-            }
+            // (gravity * oldval) + ((1 - gravity) * newval)
+            mag = _mm256_fmadd_ps(g, oldval, _mm256_mul_ps(g2, mag));
+            _mm256_store_ps(&m_tsmooth_buf[channel][i], mag);
 
             _mm256_store_ps(&m_decibels[channel][i], mag); // end of the line for AVX
         }
