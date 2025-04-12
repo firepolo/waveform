@@ -37,17 +37,6 @@ static inline bool p_equ(const char *s1, const char *s2) { return std::strcmp(s1
 #define P_VOLUME_TARGET     "volume_target"
 #define P_MAX_GAIN          "max_gain"
 
-#define P_RENDER_MODE       "render_mode"
-#define P_LINE              "line"
-#define P_SOLID             "solid"
-#define P_GRADIENT          "gradient"
-#define P_PULSE             "pulse"
-#define P_RANGE             "range"
-
-#define P_PULSE_MODE        "pulse_mode"
-#define P_PEAK_MAG          "peak_magnitude"
-#define P_PEAK_FREQ         "peak_frequency"
-
 #define P_WIDTH             "width"
 #define P_HEIGHT            "height"
 
@@ -109,11 +98,6 @@ static inline bool p_equ(const char *s1, const char *s2) { return std::strcmp(s1
 #define P_FAST_PEAKS        "fast_peaks"
 
 #define P_COLOR_BASE        "color_base"
-#define P_COLOR_MIDDLE      "color_middle"
-#define P_COLOR_CREST       "color_crest"
-#define P_GRAD_RATIO        "grad_ratio"
-#define P_RANGE_MIDDLE      "range_middle"
-#define P_RANGE_CREST       "range_crest"
 
 #define P_DISPLAY_MODE      "display_mode"
 #define P_CURVE             "curve"

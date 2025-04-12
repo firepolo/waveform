@@ -151,13 +151,7 @@ namespace callbacks {
         obs_data_set_default_double(settings, P_SLOPE, 0.0);
         obs_data_set_default_double(settings, P_ROLLOFF_Q, 0.0);
         obs_data_set_default_double(settings, P_ROLLOFF_RATE, 0.0);
-        obs_data_set_default_string(settings, P_RENDER_MODE, P_SOLID);
         obs_data_set_default_int(settings, P_COLOR_BASE, 0xffffffff);
-        obs_data_set_default_int(settings, P_COLOR_MIDDLE, 0xffffffff);
-        obs_data_set_default_int(settings, P_COLOR_CREST, 0xffffffff);
-        obs_data_set_default_double(settings, P_GRAD_RATIO, 0.75);
-        obs_data_set_default_int(settings, P_RANGE_MIDDLE, -20);
-        obs_data_set_default_int(settings, P_RANGE_CREST, -9);
         obs_data_set_default_int(settings, P_BAR_WIDTH, 24);
         obs_data_set_default_int(settings, P_BAR_GAP, 6);
         obs_data_set_default_int(settings, P_STEP_WIDTH, 8);
@@ -244,8 +238,6 @@ namespace callbacks {
             set_prop_visible(props, P_STEP_GAP, step);
             set_prop_visible(props, P_MIN_BAR_HEIGHT, bar || step);
             set_prop_visible(props, P_CAPS, bar);
-            obs_property_list_item_disable(obs_properties_get(props, P_RENDER_MODE), 0, !curve && !waveform);
-            obs_property_list_item_disable(obs_properties_get(props, P_PULSE_MODE), 1, !curve && !p_equ(disp, P_BARS) && !p_equ(disp, P_STEP_BARS));
 
             // meter mode
             bool notmeter = !(meter || step_meter);
@@ -429,35 +421,7 @@ namespace callbacks {
         obs_property_set_long_description(rolloff_q, T(P_ROLLOFF_Q_DESC));
         auto rolloff_rate = obs_properties_add_float_slider(props, P_ROLLOFF_RATE, T(P_ROLLOFF_RATE), 0.0, 65.0, 0.01);
         obs_property_set_long_description(rolloff_rate, T(P_ROLLOFF_RATE_DESC));
-        auto renderlist = obs_properties_add_list(props, P_RENDER_MODE, T(P_RENDER_MODE), OBS_COMBO_TYPE_LIST, OBS_COMBO_FORMAT_STRING);
-        obs_property_list_add_string(renderlist, T(P_LINE), P_LINE);
-        obs_property_list_add_string(renderlist, T(P_SOLID), P_SOLID);
-        obs_property_list_add_string(renderlist, T(P_GRADIENT), P_GRADIENT);
-        obs_property_list_add_string(renderlist, T(P_PULSE), P_PULSE);
-        obs_property_list_add_string(renderlist, T(P_RANGE), P_RANGE);
-        auto pulselist = obs_properties_add_list(props, P_PULSE_MODE, T(P_PULSE_MODE), OBS_COMBO_TYPE_LIST, OBS_COMBO_FORMAT_STRING);
-        obs_property_list_add_string(pulselist, T(P_PEAK_MAG), P_PEAK_MAG);
-        obs_property_list_add_string(pulselist, T(P_PEAK_FREQ), P_PEAK_FREQ);
         obs_properties_add_color_alpha(props, P_COLOR_BASE, T(P_COLOR_BASE));
-        obs_properties_add_color_alpha(props, P_COLOR_MIDDLE, T(P_COLOR_MIDDLE));
-        obs_properties_add_color_alpha(props, P_COLOR_CREST, T(P_COLOR_CREST));
-        obs_properties_add_float_slider(props, P_GRAD_RATIO, T(P_GRAD_RATIO), 0.0, 4.0, 0.01);
-        auto range_middle = obs_properties_add_int_slider(props, P_RANGE_MIDDLE, T(P_RANGE_MIDDLE), -120, 0, 1);
-        obs_property_int_set_suffix(range_middle, " dBFS");
-        auto range_crest = obs_properties_add_int_slider(props, P_RANGE_CREST, T(P_RANGE_CREST), -120, 0, 1);
-        obs_property_int_set_suffix(range_crest, " dBFS");
-        obs_property_set_modified_callback(renderlist, [](obs_properties_t *props, [[maybe_unused]] obs_property_t *property, obs_data_t *settings) -> bool {
-            auto grad = p_equ(obs_data_get_string(settings, P_RENDER_MODE), P_GRADIENT);
-            auto pulse = p_equ(obs_data_get_string(settings, P_RENDER_MODE), P_PULSE);
-            auto range = p_equ(obs_data_get_string(settings, P_RENDER_MODE), P_RANGE);
-            obs_property_set_enabled(obs_properties_get(props, P_COLOR_MIDDLE), range);
-            obs_property_set_enabled(obs_properties_get(props, P_COLOR_CREST), grad || pulse || range);
-            set_prop_visible(props, P_GRAD_RATIO, grad || pulse);
-            set_prop_visible(props, P_RANGE_MIDDLE, range);
-            set_prop_visible(props, P_RANGE_CREST, range);
-            set_prop_visible(props, P_PULSE_MODE, pulse);
-            return true;
-            });
 
         return props;
     }
@@ -525,14 +489,7 @@ void WAVSource::get_settings(obs_data_t *settings)
     m_slope = (float)obs_data_get_double(settings, P_SLOPE);
     m_rolloff_q = (float)obs_data_get_double(settings, P_ROLLOFF_Q);
     m_rolloff_rate = (float)obs_data_get_double(settings, P_ROLLOFF_RATE);
-    auto rendermode = obs_data_get_string(settings, P_RENDER_MODE);
-    auto pulsemode = obs_data_get_string(settings, P_PULSE_MODE);
     auto color_base = obs_data_get_int(settings, P_COLOR_BASE);
-    auto color_middle = obs_data_get_int(settings, P_COLOR_MIDDLE);
-    auto color_crest = obs_data_get_int(settings, P_COLOR_CREST);
-    m_grad_ratio = (float)obs_data_get_double(settings, P_GRAD_RATIO);
-    m_range_middle = (int)obs_data_get_int(settings, P_RANGE_MIDDLE);
-    m_range_crest = (int)obs_data_get_int(settings, P_RANGE_CREST);
     auto display = obs_data_get_string(settings, P_DISPLAY_MODE);
     m_bar_width = (int)obs_data_get_int(settings, P_BAR_WIDTH);
     m_bar_gap = (int)obs_data_get_int(settings, P_BAR_GAP);
@@ -606,11 +563,6 @@ void WAVSource::get_settings(obs_data_t *settings)
         m_tsmoothing = TSmoothingMode::TVEXPONENTIAL;
     else
         m_tsmoothing = TSmoothingMode::NONE;
-
-    if(p_equ(pulsemode, P_PEAK_FREQ))
-        m_pulse_mode = PulseMode::FREQUENCY;
-    else
-        m_pulse_mode = PulseMode::MAGNITUDE;
 
     m_meter_mode = false;
 }
@@ -983,7 +935,6 @@ void WAVSource::update(obs_data_t *settings)
         m_window_func = FFTWindow::NONE;
         m_interp_mode = InterpMode::POINT;
         m_filter_mode = FilterMode::NONE;
-        m_pulse_mode = PulseMode::MAGNITUDE;
         m_auto_fft_size = false;
         m_slope = 0.0f;
         m_stereo = false;

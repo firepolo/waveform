@@ -157,7 +157,6 @@ protected:
     int64_t m_ts_offset = 0;    // audio sync offset in nanoseconds
 
     // settings
-    PulseMode m_pulse_mode = PulseMode::MAGNITUDE;
     FFTWindow m_window_func = FFTWindow::HANN;
     InterpMode m_interp_mode = InterpMode::LANCZOS;
     FilterMode m_filter_mode = FilterMode::GAUSS;
